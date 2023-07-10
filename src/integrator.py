@@ -1,6 +1,8 @@
 import abc
 from abc import abstractmethod
 
+LINEAR = "linear"
+
 
 class Integrator:
     def __init__(self, start=0):
@@ -10,6 +12,9 @@ class Integrator:
     def value(self):
         return self._value
 
+    def reset(self, start):
+        self._value = start
+
     @abstractmethod
     def integrate(self, dx, dt):
         pass
@@ -18,6 +23,15 @@ class Integrator:
 class LinearIntegrator(Integrator):
     def integrate(self, dx, dt):
         self._value += dx * dt
+
+
+class IntegratorFactory:
+    @staticmethod
+    def create(type: str, start=0) -> Integrator:
+        if type.lower() == LINEAR:
+            return LinearIntegrator(start)
+
+        return None
 
 
 if __name__ == "__main__":
@@ -31,7 +45,7 @@ if __name__ == "__main__":
     times = [0]
     values = [0]
 
-    integrator = LinearIntegrator(values[0])
+    integrator = IntegratorFactory.create(LINEAR, values[0])
 
     for i in range(100):
         times.append(times[i] + dt)
