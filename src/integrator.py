@@ -34,6 +34,10 @@ class IntegratorFactory:
         return None
 
 
+def integrate_linear(state, dx, dt):
+    return state + dx*dt
+
+
 if __name__ == "__main__":
     from matplotlib import pyplot as plt
 
