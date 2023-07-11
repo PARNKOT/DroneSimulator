@@ -65,12 +65,14 @@ def convert_angles_speed(angles: np.ndarray, angles_speed_from: np.ndarray):
 
     return convert_matrix.dot(angles_speed_from)
 
+
 class DroneModel:
-    def __init__(self, mass: float, tensor: np.ndarray, shoulder: float, integrate_func=integrate_linear):
+    def __init__(self, mass: float, tensor: np.ndarray, shoulder: float, integrate_func=integrate_linear,
+                 b_engine=0, d_engine=0):
         self.mass = mass
         self.tensor = tensor
-        self.b_engine = 0
-        self.d_engine = 0
+        self.b_engine = b_engine
+        self.d_engine = d_engine
 
         # Стоит подумать над созданием отдельного класса конфигурации дрона (квадро-, октокоптер и т.д.)
         self.shoulder = shoulder
@@ -85,13 +87,13 @@ class DroneModel:
 
         self.integrate_func = integrate_func
 
-    def calculate_right_linear(self, engines_speed: np.ndarray, angles: np.ndarray) -> np.ndarray:
+    def calculate_rights_linear(self, engines_speed: np.ndarray, angles: np.ndarray) -> np.ndarray:
         res: np.ndarray
         G = np.asfarray([0, -self.mass*9.81, 0])
 
         res = np.asfarray([0, self.b_engine*np.sum(engines_speed**2), 0])
         matrix = rotation_matrix(*angles)
-        res = matrix.T.dot(res) + G
+        res = matrix.T.dot(res/self.mass) + G
 
         return res
 
@@ -113,17 +115,16 @@ class DroneModel:
         return inverse_tensor.dot(res)
 
     def integrate_linear(self, engines_speed: np.ndarray, dt):
-        angles = self.rotation_angles
-        self.linear_speed_state = self.integrate_func(self.linear_speed_state,
-                                                      self.calculate_right_linear(engines_speed, angles), dt)
-
         self.linear_state = self.integrate_func(self.linear_state, self.linear_speed_state, dt)
 
+        angles = self.rotation_angles
+        self.linear_speed_state = self.integrate_func(self.linear_speed_state,
+                                                      self.calculate_rights_linear(engines_speed, angles), dt)
+
     def integrate_rotation(self, engines_speed: np.ndarray, dt):
+        self.rotation_state = self.integrate_func(self.rotation_state, self.rotation_speed_state, dt)
         self.rotation_speed_state = self.integrate_func(self.rotation_speed_state,
                                                       self.calculate_rights_rotation(engines_speed), dt)
-
-        self.rotation_state = self.integrate_func(self.rotation_state, self.rotation_speed_state, dt)
 
     def integrate(self, engines_speed: np.ndarray, dt):
         self.rotation_angles = self.integrate_func(self.rotation_angles,
@@ -145,7 +146,7 @@ if __name__ == "__main__":
     model.b_engine = 7e-7
     model.d_engine = 7e-7
 
-    model.rotation_angles = np.asfarray([0.0, 20*np.pi/180, 0.0])
+    model.rotation_angles = np.asfarray([10*np.pi/180, 10*np.pi/180, 0.0])
 
     engines_speed = np.asarray([2500, 2500, 2500, 2500], dtype="float64")
 
