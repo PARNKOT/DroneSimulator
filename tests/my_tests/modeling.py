@@ -2,10 +2,10 @@ from dataclasses import dataclass
 import numpy as np
 from matplotlib import pyplot as plt
 
-from drone_model import DroneModel
-from command_mixer import mix_commands_cross
-from pid import PID, saturate
-from integrator import IntegratorFactory, LINEAR
+from DroneSimulator.src.drone_model import DroneModel
+from DroneSimulator.src.command_mixer import mix_commands_cross
+from DroneSimulator.src.pid import PID, saturate
+from DroneSimulator.src.integrator import IntegratorFactory, LINEAR
 
 
 @dataclass
@@ -33,7 +33,7 @@ drone_params = {
 if __name__ == "__main__":
     drone = DroneModel(**drone_params)
 
-    k_p, k_i, k_d = 0.1, 1, 0
+    k_p, k_i, k_d = 250, 0.5, 2
     pidP = PID(1.9, 0.08, 10, IntegratorFactory.create(LINEAR))
     pidx = PID(k_p, k_i, k_d, IntegratorFactory.create(LINEAR))
     pidy = PID(k_p, k_i, k_d, IntegratorFactory.create(LINEAR))
@@ -42,12 +42,12 @@ if __name__ == "__main__":
     dt = 0.1 # second
 
     Pdes = 290
-    Wdes_x = 0 * np.pi / 180
+    Wdes_x = 1 * np.pi / 180
     Wdes_y = 0
     Wdes_z = 0
 
     Xdes = 0
-    Ydes = 200
+    Ydes = 0
     Zdes = 0
 
     times = []
@@ -59,7 +59,7 @@ if __name__ == "__main__":
 
     speeds = [[], [], [], []]
 
-    for i in range(1000):
+    for i in range(100):
         times.append(i*dt)
 
         Wcur_x, Wcur_y, Wcur_z = drone.rotation_speeds
@@ -70,15 +70,15 @@ if __name__ == "__main__":
         Wz.append(Wcur_z*180/np.pi)
 
         cmd_thrust = pidP.calculate(Ydes - Ycur, dt)
-        cmd_x = pidx.calculate(Xdes - Xcur, dt)
-        cmd_y = pidy.calculate(Ydes - Ycur, dt)
-        cmd_z = pidz.calculate(Zdes - Zcur, dt)
+        # cmd_x = pidx.calculate(Xdes - Xcur, dt)
+        # cmd_y = pidy.calculate(Ydes - Ycur, dt)
+        # cmd_z = pidz.calculate(Zdes - Zcur, dt)
 
-        # cmd_x = pidx.calculate(Wdes_x-Wcur_x, dt)
-        # cmd_y = pidy.calculate(Wdes_y-Wcur_y, dt)
-        # cmd_z = pidz.calculate(Wdes_z-Wcur_z, dt)
+        cmd_x = pidx.calculate(Wdes_x-Wcur_x, dt)
+        cmd_y = pidy.calculate(Wdes_y-Wcur_y, dt)
+        cmd_z = pidz.calculate(Wdes_z-Wcur_z, dt)
 
-        engines_speeds = mix_commands_cross([cmd_thrust, 0, 0, 0])
+        engines_speeds = mix_commands_cross([Pdes, cmd_x, cmd_y, cmd_z])
 
         for i, speed in enumerate(engines_speeds):
             engines_speeds[i] = saturate(speed, 2500)

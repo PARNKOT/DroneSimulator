@@ -1,4 +1,3 @@
-import abc
 from abc import abstractmethod
 
 LINEAR = "linear"

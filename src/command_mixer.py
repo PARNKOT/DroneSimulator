@@ -9,7 +9,7 @@ def mix_commands_cross(commands: typing.Sequence):
     Wy = commands[2]
     Wz = commands[3]
 
-    return np.asfarray([thrust + Wz + Wx - Wy,
-                        thrust + Wz - Wx + Wy,
-                        thrust - Wz - Wx - Wy,
-                        thrust - Wz + Wx + Wy])
+    return np.asfarray([thrust + Wz + Wx - Wy,  # engine 0
+                        thrust + Wz - Wx + Wy,  # engine 1
+                        thrust - Wz - Wx - Wy,  # engine 2
+                        thrust - Wz + Wx + Wy]) # engine 3

@@ -1,69 +1,7 @@
 import numpy as np
 import numpy.linalg
-from integrator import integrate_linear
-
-
-def rotation_matrix(yaw, pitch, roll) -> np.ndarray:
-    """
-    @param yaw: курс, [рад]
-    @param pitch: тангаж, [рад]
-    @param roll: крен, [рад]
-    @return: матрица поворота из нормальной земной СК в связанную СК
-    """
-
-    R_roll = np.asfarray([[1, 0, 0],
-                         [0, np.cos(roll), np.sin(roll)],
-                         [0, -np.sin(roll), np.cos(roll)]])
-
-    R_pitch = np.asfarray([[np.cos(pitch), np.sin(pitch), 0],
-                          [-np.sin(pitch), np.cos(pitch), 0],
-                          [0, 0, 1]])
-
-    R_yaw = np.asfarray([[np.cos(yaw), 0, np.sin(yaw)],
-                         [0, 1, 0],
-                         [-np.sin(yaw), 0, np.cos(yaw)]])
-
-    return R_roll.dot(R_pitch.dot(R_yaw))
-
-# def rotation_matrix(yaw, pitch, roll) -> np.ndarray:
-#     """
-#     @param yaw: курс, [рад]
-#     @param pitch: тангаж, [рад]
-#     @param roll: крен, [рад]
-#     @return: матрица поворота из нормальной земной СК в связанную СК
-#     """
-#
-#     R_roll = np.asfarray([[1, 0, 0],
-#                          [0, np.cos(roll), np.sin(roll)],
-#                          [0, -np.sin(roll), np.cos(roll)]])
-#
-#     R_yaw = np.asfarray([[np.cos(yaw), np.sin(yaw), 0],
-#                           [-np.sin(yaw), np.cos(yaw), 0],
-#                           [0, 0, 1]])
-#
-#     R_pitch = np.asfarray([[np.cos(pitch), 0, np.sin(pitch)],
-#                          [0, 1, 0],
-#                          [-np.sin(pitch), 0, np.cos(pitch)]])
-#
-#     return R_roll.dot(R_pitch.dot(R_yaw))
-
-
-# angles = [psi, tetta, gamma]
-# def convert_angles_speed(angles: np.ndarray, angles_speed_from: np.ndarray):
-#     yaw, pitch, roll = angles[0], angles[1], angles[2]
-#     convert_matrix = np.asfarray([[0, np.sin(roll)/np.cos(pitch), -np.cos(roll)/np.cos(pitch)],
-#                                   [1, np.cos(roll), np.sin(roll)],
-#                                   [1, np.tan(pitch)*np.sin(roll), -np.tan(pitch)*np.cos(roll)]])
-#
-#     return convert_matrix.dot(angles_speed_from)
-
-def convert_angles_speed(angles: np.ndarray, angles_speed_from: np.ndarray):
-    yaw, pitch, roll = angles[0], angles[1], angles[2]
-    convert_matrix = np.asfarray([[0, -np.cos(roll)/np.cos(pitch), np.sin(roll)/np.cos(pitch)],
-                                  [1, np.sin(roll), np.cos(roll)],
-                                  [1, -np.tan(pitch)*np.cos(roll), np.tan(pitch)*np.sin(roll)]])
-
-    return convert_matrix.dot(angles_speed_from)
+from DroneSimulator.src.integrator import integrate_linear
+from DroneSimulator.src.utils import rotation_matrix, get_angles_from_rotation_matrix
 
 
 class DroneModel:
@@ -77,31 +15,46 @@ class DroneModel:
         # Стоит подумать над созданием отдельного класса конфигурации дрона (квадро-, октокоптер и т.д.)
         self.shoulder = shoulder
 
-        self.linear_speed_state = np.asfarray([0, 0, 0])
-        self.linear_state = np.asfarray([0, 0, 0]) # Xc, Yc, Zc
+        self.linear_speeds = np.asfarray([0, 0, 0]) # VN (Север), VH (Высота), VE (Восток)
+        self.linear_coords = np.asfarray([0, 0, 0]) # XN (Север), YH (Высота), ZE (Восток)
 
-        self.rotation_speed_state = np.asfarray([0, 0, 0]) # Wx, Wy, Wz
-        self.rotation_state = np.asfarray([0, 0, 0])
+        self.rotation_speeds = np.asfarray([0, 0, 0]) # Wx, Wy, Wz
+        self.angles = np.asfarray([0, 0, 0]) # Yaw, Pitch, Roll
 
-        self.rotation_angles = np.asfarray([0, 0, 0])
+        self.rotation_matrix = rotation_matrix(self.angles[0], self.angles[1], self.angles[2]).T
 
         self.integrate_func = integrate_func
 
-    def calculate_rights_linear(self, engines_speed: np.ndarray, angles: np.ndarray) -> np.ndarray:
+    def set_init_angles(self, yaw, pitch, roll):
+        self.angles = np.asfarray([yaw, pitch, roll])
+        self.rotation_matrix = rotation_matrix(yaw, pitch, roll).T
+
+    def calculate_rights_linear(self, engines_speed: np.ndarray) -> np.ndarray:
         res: np.ndarray
         G = np.asfarray([0, -self.mass*9.81, 0])
 
-        res = np.asfarray([0, self.b_engine*np.sum(engines_speed**2), 0])
-        matrix = rotation_matrix(*angles)
-        res = matrix.T.dot(res/self.mass) + G
+        res = np.asfarray([0, self.b_engine*np.sum(engines_speed**2)/self.mass, 0])
+        return self.rotation_matrix.dot(res) + G
 
-        return res
+    def rotation_matrix_rights(self):
+        wx, wy, wz = self.rotation_speeds
+        speeds_matrix = np.asfarray([[0, -wz, wy],
+                                     [wz, 0, -wx],
+                                     [-wy, wx, 0]])
+        return self.rotation_matrix.dot(speeds_matrix)
+
+    # def active_moments(self, engines_speed: np.ndarray) -> np.ndarray:
+    #     k_engine = self.shoulder*self.b_engine
+    #     config_matrix = np.asarray([[0.0, -k_engine, 0.0, k_engine],
+    #                                 [-self.d_engine, self.d_engine, -self.d_engine, self.d_engine],
+    #                                 [k_engine, 0.0, -k_engine, 0.0]], dtype="float64")
+    #     return np.dot(config_matrix, engines_speed**2)
 
     def active_moments(self, engines_speed: np.ndarray) -> np.ndarray:
         k_engine = self.shoulder*self.b_engine
-        config_matrix = np.asarray([[0.0, -k_engine, 0.0, k_engine],
+        config_matrix = np.asfarray([[k_engine, -k_engine, -k_engine, k_engine],
                                     [-self.d_engine, self.d_engine, -self.d_engine, self.d_engine],
-                                    [k_engine, 0.0, -k_engine, 0.0]], dtype="float64")
+                                    [k_engine, k_engine, -k_engine, -k_engine]])
         return np.dot(config_matrix, engines_speed**2)
 
     def calculate_rights_rotation(self, engines_speed: np.ndarray) -> np.ndarray:
@@ -109,27 +62,28 @@ class DroneModel:
 
         inverse_tensor = numpy.linalg.inv(self.tensor)
 
-        res = self.active_moments(engines_speed) - np.cross(self.rotation_speed_state,
-                                                            self.tensor.dot(self.rotation_speed_state))
+        res = self.active_moments(engines_speed) - np.cross(self.rotation_speeds,
+                                                            self.tensor.dot(self.rotation_speeds))
 
         return inverse_tensor.dot(res)
 
     def integrate_linear(self, engines_speed: np.ndarray, dt):
-        self.linear_state = self.integrate_func(self.linear_state, self.linear_speed_state, dt)
+        self.linear_coords = self.integrate_func(self.linear_coords, self.linear_speeds, dt)
 
-        angles = self.rotation_angles
-        self.linear_speed_state = self.integrate_func(self.linear_speed_state,
-                                                      self.calculate_rights_linear(engines_speed, angles), dt)
+        self.linear_speeds = self.integrate_func(self.linear_speeds,
+                                                      self.calculate_rights_linear(engines_speed), dt)
 
     def integrate_rotation(self, engines_speed: np.ndarray, dt):
-        self.rotation_state = self.integrate_func(self.rotation_state, self.rotation_speed_state, dt)
-        self.rotation_speed_state = self.integrate_func(self.rotation_speed_state,
+        self.rotation_speeds = self.integrate_func(self.rotation_speeds,
                                                       self.calculate_rights_rotation(engines_speed), dt)
 
+    def integrate_rotation_matrix(self, dt):
+        self.rotation_matrix = self.integrate_func(self.rotation_matrix, self.rotation_matrix_rights(), dt)
+        self.angles = get_angles_from_rotation_matrix(self.rotation_matrix)
+
     def integrate(self, engines_speed: np.ndarray, dt):
-        self.rotation_angles = self.integrate_func(self.rotation_angles,
-                            convert_angles_speed(self.rotation_angles, self.rotation_speed_state), dt)
         self.integrate_linear(engines_speed, dt)
+        self.integrate_rotation_matrix(dt)
         self.integrate_rotation(engines_speed, dt)
 
 
@@ -146,41 +100,53 @@ if __name__ == "__main__":
     model.b_engine = 7e-7
     model.d_engine = 7e-7
 
-    model.rotation_angles = np.asfarray([10*np.pi/180, 10*np.pi/180, 0.0])
+    model.set_init_angles(0*np.pi/180, 0*np.pi/180, 0*np.pi/180)
 
-    engines_speed = np.asarray([2500, 2500, 2500, 2500], dtype="float64")
+    engines_speed = np.asfarray([2505, 2500, 2500, 2505])
 
     dt = 0.1
-    times = [0]
+    times = []
     Wx, Wy, Wz = [0.0], [0.0], [0.0]
     Angle1 = [0.0]
     Angle2 = [0.0]
     Angle3 = [0.0]
-    Yaw = [0.0]
-    Pitch = [20]
-    Roll = [0.0]
-    Xc = [0.0]
-    Yc = [0.0]
-    Zc = [0.0]
-    X = [0.0]
-    Y = [0.0]
-    Z = [0.0]
+    Yaw = []
+    Pitch = []
+    Roll = []
+    XN = []
+    YH = []
+    ZE = []
 
-    for i in range(100):
-        times.append(times[i]+dt)
+
+    for i in range(201):
+        times.append(i*dt)
+        if i == 70:
+            engines_speed = np.asfarray([2500, 2500, 2500, 2500])
+
         model.integrate(engines_speed, dt)
-        Wx.append(model.rotation_speed_state[0])
-        Wy.append(model.rotation_speed_state[1])
-        Wz.append(model.rotation_speed_state[2])
-        Angle1.append(model.rotation_state[0])
-        Angle2.append(model.rotation_state[1])
-        Angle3.append(model.rotation_state[2])
-        Yaw.append(model.rotation_angles[0] * (180/np.pi))
-        Pitch.append(model.rotation_angles[1] * (180/np.pi))
-        Roll.append(model.rotation_angles[2] * (180/np.pi))
-        Xc.append(model.linear_state[0])
-        Yc.append(model.linear_state[1])
-        Zc.append(model.linear_state[2])
+        yaw, pitch, roll = get_angles_from_rotation_matrix(model.rotation_matrix)
+        Yaw.append(yaw * 180 / np.pi)
+        Pitch.append(pitch * 180 / np.pi)
+        Roll.append(roll * 180 / np.pi)
+        # Wx.append(model.rotation_speed_state[0])
+        # Wy.append(model.rotation_speed_state[1])
+        # Wz.append(model.rotation_speed_state[2])
+        # Angle1.append(model.rotation_state[0])
+        # Angle2.append(model.rotation_state[1])
+        # Angle3.append(model.rotation_state[2])
+        # Yaw.append(model.rotation_angles[0] * (180/np.pi))
+        # Pitch.append(model.rotation_angles[1] * (180/np.pi))
+        # Roll.append(model.rotation_angles[2] * (180/np.pi))
+        XN.append(model.linear_coords[0])
+        YH.append(model.linear_coords[1])
+        ZE.append(model.linear_coords[2])
+
+    # plt.plot(times, Yaw)
+    # plt.plot(times, Pitch)
+    # plt.plot(times, Roll)
+    # plt.legend(["Yaw", "Pitch", "Roll"])
+    # plt.grid()
+    # plt.show()
 
     # plt.plot(times, Wx)
     # plt.plot(times, Wy)
@@ -192,9 +158,9 @@ if __name__ == "__main__":
     ax2.plot(times, Roll)
     ax2.legend(["Yaw", "Pitch", "Roll"])
 
-    ax1.plot(times, Xc)
-    ax1.plot(times, Yc)
-    ax1.plot(times, Zc)
+    ax1.plot(times, XN)
+    ax1.plot(times, YH)
+    ax1.plot(times, ZE)
     ax1.legend(["X", "Y", "Z"])
     plt.grid()
     plt.show()
