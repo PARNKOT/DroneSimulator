@@ -1,7 +1,7 @@
 import numpy as np
 import numpy.linalg
 from DroneSimulator.src.integrator import integrate_linear
-from DroneSimulator.src.utils import rotation_matrix, get_angles_from_rotation_matrix
+from DroneSimulator.src.utils import rotation_matrix, get_angles_from_rotation_matrix, saturate, saturate_min_max
 
 
 class DroneModel:
@@ -11,6 +11,7 @@ class DroneModel:
         self.tensor = tensor
         self.b_engine = b_engine
         self.d_engine = d_engine
+        self.limit = 1000
 
         # Стоит подумать над созданием отдельного класса конфигурации дрона (квадро-, октокоптер и т.д.)
         self.shoulder = shoulder
@@ -82,7 +83,11 @@ class DroneModel:
         self.angles = get_angles_from_rotation_matrix(self.rotation_matrix)
 
     def integrate(self, engines_speed: np.ndarray, dt):
+        for i, speed in enumerate(engines_speed):
+            engines_speed[i] = saturate_min_max(speed, 0, self.limit)
+
         self.integrate_linear(engines_speed, dt)
+        self.linear_coords[1] = saturate_min_max(self.linear_coords[1], 0, self.linear_coords[1])
         self.integrate_rotation_matrix(dt)
         self.integrate_rotation(engines_speed, dt)
 

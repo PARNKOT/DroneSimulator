@@ -9,6 +9,9 @@ class PID:
         self.__past_value = 0
         self.__integrator = integrator
 
+    def reset(self, value):
+        self.__integrator.reset(value)
+
     def calculate(self, value, dt):
         res = self.__k_p * value
 
@@ -24,13 +27,6 @@ class PID:
         return (value - self.__past_value)/dt
 
 
-def saturate(value, limit):
-    if value > limit:
-        return limit
-    elif value < -limit:
-        return -limit
-    return value
-
 
 if __name__ == "__main__":
     from matplotlib import pyplot as plt
@@ -43,7 +39,7 @@ if __name__ == "__main__":
 
     for i in range(1000):
         times.append(times[i] + dt)
-        values.append(saturate(pid.calculate(signal, dt), 10))
+        values.append(pid.calculate(signal, dt), 10)
 
     plt.plot(times, values)
     plt.show()

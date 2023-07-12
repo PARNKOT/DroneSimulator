@@ -31,6 +31,19 @@ def get_angles_from_rotation_matrix(matrix: np.ndarray):
 
     return np.asfarray([yaw, pitch, roll])
 
+def saturate(value, limit):
+    if value > limit:
+        return limit
+    elif value < -limit:
+        return -limit
+    return value
+
+def saturate_min_max(value, min_limit, max_limit):
+    if value > max_limit:
+        return max_limit
+    elif value < min_limit:
+        return min_limit
+    return value
 
 # def convert_angles_speed(angles: typing.Sequence, angles_speed_from: np.ndarray):
 #     yaw, pitch, roll = angles[0], angles[1], angles[2]
