@@ -11,7 +11,8 @@ class DroneModel:
         self.tensor = tensor
         self.b_engine = b_engine
         self.d_engine = d_engine
-        self.limit = 1000
+        self.min_limit = 100
+        self.max_limit = 1000
 
         # Стоит подумать над созданием отдельного класса конфигурации дрона (квадро-, октокоптер и т.д.)
         self.shoulder = shoulder
@@ -26,16 +27,19 @@ class DroneModel:
 
         self.integrate_func = integrate_func
 
+        self.engines_speeds = np.asfarray([0, 0, 0, 0])
+
     def set_init_angles(self, yaw, pitch, roll):
         self.angles = np.asfarray([yaw, pitch, roll])
         self.rotation_matrix = rotation_matrix(yaw, pitch, roll).T
 
     def calculate_rights_linear(self, engines_speed: np.ndarray) -> np.ndarray:
         res: np.ndarray
-        G = np.asfarray([0, -self.mass*9.81, 0])
+        G = np.asfarray([0, -9.81, 0])
+        resistance = np.asfarray([-0.02, -0.02, -0.02]) * self.linear_speeds
 
         res = np.asfarray([0, self.b_engine*np.sum(engines_speed**2)/self.mass, 0])
-        return self.rotation_matrix.dot(res) + G
+        return self.rotation_matrix.dot(res) + G + resistance
 
     def rotation_matrix_rights(self):
         wx, wy, wz = self.rotation_speeds
@@ -71,8 +75,10 @@ class DroneModel:
     def integrate_linear(self, engines_speed: np.ndarray, dt):
         self.linear_coords = self.integrate_func(self.linear_coords, self.linear_speeds, dt)
 
-        self.linear_speeds = self.integrate_func(self.linear_speeds,
-                                                      self.calculate_rights_linear(engines_speed), dt)
+        accelerations = self.calculate_rights_linear(engines_speed)
+        if accelerations[1] <= 0 and self.linear_coords[1] <= 0: # !!!!!!!!!
+            accelerations[1] = 0
+        self.linear_speeds = self.integrate_func(self.linear_speeds, accelerations, dt)
 
     def integrate_rotation(self, engines_speed: np.ndarray, dt):
         self.rotation_speeds = self.integrate_func(self.rotation_speeds,
@@ -84,10 +90,14 @@ class DroneModel:
 
     def integrate(self, engines_speed: np.ndarray, dt):
         for i, speed in enumerate(engines_speed):
-            engines_speed[i] = saturate_min_max(speed, 0, self.limit)
+            engines_speed[i] = saturate_min_max(speed, self.min_limit, self.max_limit)
+            #engines_speed[i] = saturate(speed, self.limit)
+
+        self.engines_speeds = engines_speed
 
         self.integrate_linear(engines_speed, dt)
         self.linear_coords[1] = saturate_min_max(self.linear_coords[1], 0, self.linear_coords[1])
+
         self.integrate_rotation_matrix(dt)
         self.integrate_rotation(engines_speed, dt)
 
