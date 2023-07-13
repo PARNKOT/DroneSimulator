@@ -1,7 +1,7 @@
 import numpy as np
 import numpy.linalg
-from DroneSimulator.src.integrator import integrate_linear
-from DroneSimulator.src.utils import rotation_matrix, get_angles_from_rotation_matrix, saturate, saturate_min_max
+from src.integrator import integrate_linear
+from src.utils import rotation_matrix, get_angles_from_rotation_matrix, saturate, saturate_min_max
 
 
 class DroneModel:

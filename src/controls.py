@@ -2,8 +2,8 @@ import typing
 
 import numpy as np
 
-from DroneSimulator.src.pid import PID
-from DroneSimulator.src.integrator import IntegratorFactory, LINEAR
+from src.pid import PID
+from src.integrator import IntegratorFactory, LINEAR
 
 
 drone_params = {
@@ -454,15 +454,15 @@ def model_linear_speeds():
 
 def model_coords():
     from matplotlib import pyplot as plt
-    from DroneSimulator.src.drone_model import DroneModel
-    from DroneSimulator.src.command_mixer import mix_commands_cross
-    from DroneSimulator.src.utils import saturate, saturate_min_max
+    from src.drone_model import DroneModel
+    from src.command_mixer import mix_commands_cross
+    from src.utils import saturate, saturate_min_max
     drone = DroneModel(**drone_params)
     drone.linear_speeds = np.asfarray([0, 0, 0])
     drone.linear_coords = np.asfarray([0, 0, 0])
     drone.set_init_angles(0, 0 * np.pi / 180, 0)
 
-    k_p, k_i, k_d = 0.005, 0.0, 0.0
+    k_p, k_i, k_d = 0.08, 0.0001, 0.0
 
     control1 = RotationSpeedsControlLoop(**control1_params)
     control2 = AnglesControlLoop(**control2_params)
@@ -470,12 +470,12 @@ def model_coords():
     control4 = CoordsControlLoop(k_p, k_i, k_d)
 
     dt = 0.01  # second
-    t = int(20 / dt)
+    t = int(50 / dt)
 
-    X_des = 0
+    X_des = 100
     Y_des = 100
-    Z_des = 0
-    Yaw_des = 0
+    Z_des = 100
+    Yaw_des = 30*np.pi/180
 
     times = []
 

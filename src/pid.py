@@ -1,4 +1,4 @@
-from DroneSimulator.src.integrator import Integrator, LinearIntegrator
+from src.integrator import Integrator, LinearIntegrator
 
 
 class PID:
