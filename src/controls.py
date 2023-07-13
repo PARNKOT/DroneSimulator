@@ -1,9 +1,13 @@
 import typing
-
 import numpy as np
+from dataclasses import dataclass
+from matplotlib import pyplot as plt
 
+from src.drone_model import DroneModel
 from src.pid import PID
 from src.integrator import IntegratorFactory, LINEAR
+from src.utils import saturate, saturate_min_max
+from src.command_mixer import mix_commands_cross
 
 
 drone_params = {
@@ -31,6 +35,12 @@ control2_params = {
 control3_params = {
     "k_p": 0.3,
     "k_i": 0.005,
+    "k_d": 0,
+}
+
+control4_params = {
+    "k_p": 0.08,
+    "k_i": 0.0001,
     "k_d": 0,
 }
 
@@ -130,6 +140,74 @@ class CoordsControlLoop:
         z_cmd = self.__pid_z.calculate(z_des-z_cur, dt)
 
         return np.asfarray([x_cmd, thrust_cmd, z_cmd])
+
+
+@dataclass
+class MeasuredParams:
+    Coords = np.asfarray([0, 0, 0])
+    Linear_speeds = np.asfarray([0, 0, 0])
+    Angles = np.asfarray([0, 0, 0])
+    Rotation_speeds = np.asfarray([0, 0, 0])
+
+
+class  Controller:
+    control1_params = {
+        "k_p": 90,
+        "k_i": 0.3,
+        "k_d": 1,
+    }
+
+    control2_params = {
+        "k_p_angles": 5.5,
+        "k_i_angles": 0,
+        "k_d_angles": 1,
+    }
+
+    control3_params = {
+        "k_p": 0.3,
+        "k_i": 0.005,
+        "k_d": 0,
+    }
+
+    control4_params = {
+        "k_p": 0.08,
+        "k_i": 0.0001,
+        "k_d": 0,
+    }
+
+    def __init__(self):
+        self.__controller_rotation_speeds = RotationSpeedsControlLoop(**self.control1_params)
+        self.__controller_angles = AnglesControlLoop(**self.control2_params)
+        self.__controller_linear_speeds = LinearSpeedsControlLoop(**self.control3_params)
+        self.__controller_coords = CoordsControlLoop(**self.control4_params)
+
+        self.angles_limits = (30 * np.pi/180, 30*np.pi/180)
+
+    def handle(self, yaw_des, coords_des: typing.Sequence, measurements: MeasuredParams, rotation_matrix: np.ndarray, dt):
+        x_des, y_des, z_des = coords_des
+
+        Wx_cur, Wy_cur, Wz_cur = measurements.Rotation_speeds
+        VN_cur, VH_cur, VE_cur = measurements.Linear_speeds
+        Yaw_cur, Pitch_cur, Roll_cur = measurements.Angles
+        X_cur, Y_cur, Z_cur = measurements.Coords
+
+        X_cmd, thrust_cmd, Z_cmd = self.__controller_coords.handle([x_des, y_des, z_des], [X_cur, Y_cur, Z_cur], dt)
+
+        VN_cmd, VH_cmd, VE_cmd = self.__controller_linear_speeds.handle([X_cmd, thrust_cmd, Z_cmd], [VN_cur, VH_cur, VE_cur], dt)
+
+        _, VH_cmd, _ = rotation_matrix.dot(np.asfarray([VN_cmd, VH_cmd, VE_cmd]))
+
+        # Команды тангажа и крена ограничиваются +-30 градусами
+        VN_cmd = saturate(VN_cmd, self.angles_limits[0])
+        VE_cmd = saturate(VE_cmd, self.angles_limits[1])
+
+        thrust, *speeds_des = self.__controller_angles.handle(VH_cmd, [yaw_des, VN_cmd, VE_cmd],
+                                              [Yaw_cur, Pitch_cur, Roll_cur], dt)
+
+        engines_speeds = mix_commands_cross(self.__controller_rotation_speeds.handle(thrust, speeds_des,
+                                                            [Wx_cur, Wy_cur, Wz_cur], dt))
+
+        return engines_speeds
 
 
 def model_rotation_speeds():
@@ -578,7 +656,107 @@ def model_coords():
 
 
 if __name__ == "__main__":
-    #model_rotation_speeds()
-    #model_rotation()
-    #model_linear_speeds()
-    model_coords()
+    drone = DroneModel(**drone_params)
+    drone.linear_speeds = np.asfarray([0, 0, 0])
+    drone.linear_coords = np.asfarray([0, 0, 0])
+    drone.set_init_angles(0, 0 * np.pi / 180, 0)
+
+    controller = Controller()
+
+    dt = 0.01  # second
+    t = int(50 / dt)
+
+    X_des = 500
+    Y_des = 200
+    Z_des = 1000
+    Yaw_des = 30*np.pi/180
+
+    times = []
+
+    Wx, Wy, Wz = [], [], []
+    Yaw, Pitch, Roll = [], [], []
+    VN, VH, VE = [], [], []
+    X, Y, Z = [], [], []
+
+    speeds = [[], [], [], []]
+
+
+    def trajectory(t):
+        return (t, 200, 0.5*t**2)
+
+
+    for i in range(t):
+        times.append(i * dt)
+        measurements = MeasuredParams()
+
+        measurements.Rotation_speeds = drone.rotation_speeds
+        measurements.Linear_speeds = drone.linear_speeds
+        measurements.Angles = drone.angles
+        measurements.Coords = drone.linear_coords
+
+        Wx.append(measurements.Rotation_speeds[0] * 180 / np.pi)
+        Wy.append(measurements.Rotation_speeds[1] * 180 / np.pi)
+        Wz.append(measurements.Rotation_speeds[2] * 180 / np.pi)
+
+        Yaw.append(measurements.Angles[0] * 180 / np.pi)
+        Pitch.append(measurements.Angles[1] * 180 / np.pi)
+        Roll.append(measurements.Angles[2] * 180 / np.pi)
+
+        VN.append(measurements.Linear_speeds[0])
+        VH.append(measurements.Linear_speeds[1])
+        VE.append(measurements.Linear_speeds[2])
+
+        X.append(measurements.Coords[0])
+        Y.append(measurements.Coords[1])
+        Z.append(measurements.Coords[2])
+
+        X_des, Y_des, Z_des = trajectory(times[-1])
+
+        engines_speeds = controller.handle(Yaw_des, [X_des, Y_des, Z_des], measurements, drone.rotation_matrix, dt)
+
+        for i, speed in enumerate(drone.engines_speeds):
+            speeds[i].append(speed)
+
+        drone.integrate(engines_speeds, dt)
+
+    fig, ((ax11, ax12, ax13), (ax21, ax22, ax23)) = plt.subplots(2, 3)
+
+    ax11.plot(times, Wx)
+    ax11.plot(times, Wy)
+    ax11.plot(times, Wz)
+    ax11.grid()
+    ax11.legend(["Wx", "Wy", "Wz"])
+
+    ax12.plot(times, speeds[0])
+    ax12.plot(times, speeds[1])
+    ax12.plot(times, speeds[2])
+    ax12.plot(times, speeds[3])
+    ax12.legend(["W1", "W2", "W3", "W4"])
+    ax12.grid()
+
+    ax13.plot(times, Yaw)
+    ax13.plot(times, Pitch)
+    ax13.plot(times, Roll)
+    ax13.legend(["Yaw", "Pitch", "Roll"])
+    ax13.grid()
+
+    ax21.plot(times, VN)
+    ax21.plot(times, VH)
+    ax21.plot(times, VE)
+    ax21.legend(["VN", "VH", "VE"])
+    ax21.grid()
+
+    ax22.plot(times, X)
+    ax22.plot(times, Y)
+    ax22.plot(times, Z)
+    ax22.legend(["X", "Y", "Z"])
+    ax22.grid()
+
+    ax = plt.axes(projection="3d")
+    ax.plot3D(X,Y,Z)
+    ax.grid()
+    ax.set_xlabel("X")
+    ax.set_ylabel("Y")
+    ax.set_zlabel("Z")
+
+    plt.show()
