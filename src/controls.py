@@ -4,12 +4,12 @@ import numpy as np
 from dataclasses import dataclass
 from matplotlib import pyplot as plt
 
-from src.sender import Sender
-from src.drone_model import DroneModel
-from src.pid import PID
-from src.integrator import IntegratorFactory, LINEAR
-from src.utils import saturate, saturate_min_max
-from src.command_mixer import mix_commands_cross
+from sender import Sender
+from drone_model import DroneModel
+from pid import PID
+from integrator import IntegratorFactory, LINEAR
+from utils import saturate
+from command_mixer import mix_commands_cross
 
 
 drone_params = {
@@ -152,7 +152,7 @@ class MeasuredParams:
     Rotation_speeds = np.asfarray([0, 0, 0])
 
 
-class  Controller:
+class Controller:
     control1_params = {
         "k_p": 90,
         "k_i": 0.3,
@@ -214,9 +214,9 @@ class  Controller:
 
 def model_rotation_speeds():
     from matplotlib import pyplot as plt
-    from DroneSimulator.src.drone_model import DroneModel
-    from DroneSimulator.src.command_mixer import mix_commands_cross
-    from DroneSimulator.src.utils import saturate, saturate_min_max
+    from src.drone_model import DroneModel
+    from src.command_mixer import mix_commands_cross
+    from src.utils import saturate, saturate_min_max
     drone = DroneModel(**drone_params)
 
     k_p, k_i, k_d = 90, 0.3, 1
@@ -308,9 +308,9 @@ def model_rotation_speeds():
 
 def model_rotation():
     from matplotlib import pyplot as plt
-    from DroneSimulator.src.drone_model import DroneModel
-    from DroneSimulator.src.command_mixer import mix_commands_cross
-    from DroneSimulator.src.utils import saturate
+    from src.drone_model import DroneModel
+    from src.command_mixer import mix_commands_cross
+    from src.utils import saturate
     drone = DroneModel(**drone_params)
 
     k_p_angles, k_i_angles, k_d_angles = 5.5, 0, 1
@@ -411,9 +411,9 @@ def model_rotation():
 
 def model_linear_speeds():
     from matplotlib import pyplot as plt
-    from DroneSimulator.src.drone_model import DroneModel
-    from DroneSimulator.src.command_mixer import mix_commands_cross
-    from DroneSimulator.src.utils import saturate, saturate_min_max
+    from src.drone_model import DroneModel
+    from src.command_mixer import mix_commands_cross
+    from src.utils import saturate, saturate_min_max
     drone = DroneModel(**drone_params)
     drone.linear_speeds = np.asfarray([0, 0, 0])
     drone.linear_coords = np.asfarray([0, 0, 0])
@@ -658,7 +658,7 @@ def model_coords():
 
 
 if __name__ == "__main__":
-    sender = Sender("localhost", 10100)
+    #sender = Sender("localhost", 10100)
 
     drone = DroneModel(**drone_params)
     drone.linear_speeds = np.asfarray([0, 0, 0])
@@ -670,10 +670,10 @@ if __name__ == "__main__":
     dt = 0.01  # second
     t = int(30 / dt)
 
-    X_des = 500
-    Y_des = 200
-    Z_des = 1000
-    Yaw_des = 0*np.pi/180
+    X_des = 0#500
+    Y_des = 0#200
+    Z_des = 0#1000
+    Yaw_des = 30*np.pi/180
 
     times = []
 
@@ -702,7 +702,7 @@ if __name__ == "__main__":
 
         state = np.asfarray([measurements.Coords, measurements.Angles])
 
-        sender.put(pickle.dumps(state))
+        #sender.put(pickle.dumps(state))
 
         Wx.append(measurements.Rotation_speeds[0] * 180 / np.pi)
         Wy.append(measurements.Rotation_speeds[1] * 180 / np.pi)

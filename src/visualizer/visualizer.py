@@ -5,13 +5,15 @@ from multiprocessing import Queue
 from threading import Event, Thread
 import socket
 import pickle
+
+import numpy
 from numpy import asfarray
 
 from vispy import scene
 from vispy.color import Color
 from vispy.visuals.transforms import STTransform, ChainTransform, MatrixTransform
 
-from src.utils import rotate_yaw_matrix, rotate_pitch_matrix, rotate_roll_matrix, rotation_matrix
+from src.utils import rotate_yaw_matrix, rotate_pitch_matrix, rotate_roll_matrix
 
 
 class DroneScene:
@@ -22,6 +24,7 @@ class DroneScene:
         self.view.bgcolor = '#efefef'
         self.view.camera = scene.cameras.FlyCamera()
         self.view.padding = 100
+        self.trajectory_scale = 0.1
         self.scale = 0.1
 
         color = Color("#3f51b5")
@@ -47,12 +50,13 @@ class DroneScene:
 
     def move_drone(self, x, y, z):
         self.cube.transform.transforms[0].translate = [x, y, z]
-        #if self.follow:
-        #    self.view.camera.transform.translate = [x+5, y+5, z+5]
+        self.cube.view()
 
     def rotate_drone(self, yaw, pitch, roll):
-        matrix = rotate_pitch_matrix(-yaw).dot(rotate_roll_matrix(pitch).dot(rotate_yaw_matrix(roll).T))
-        self.cube.transform.transforms[1].matrix[:3, :3] = matrix
+        matrix = self.cube.transform.transforms[1].matrix.copy()
+        matrix[:3, :3] = rotate_pitch_matrix(-yaw).dot(rotate_roll_matrix(pitch).dot(rotate_yaw_matrix(roll).T))
+        self.cube.transform.transforms[1].matrix = matrix
+        #self.cube.transform.transforms[1].update()
 
     def fetcher(self):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
@@ -66,8 +70,8 @@ class DroneScene:
                 if data:
                     pickled_data = pickle.loads(data)
                     print(pickled_data)
-                    time.sleep(0.01)
                     self.queue.put(pickled_data)
+                    time.sleep(0.01)
                 else:
                     time.sleep(0.5)
 
@@ -79,7 +83,7 @@ class DroneScene:
                 data = self.queue.get()
 
                 coords, angles = data
-                coords *= self.scale
+                coords *= self.trajectory_scale
                 coords = asfarray([coords[0], coords[2], coords[1]])
 
                 self.trajectory.append(coords)
@@ -94,12 +98,13 @@ class DroneScene:
         dt = 0.01
         r = 0
         for i in range(int(10/dt)):
-            r = i/100
+            r = 0*i/100
             x, y, z = r*math.cos(i*math.pi/180), r*math.sin(i*math.pi/180), r
-            yaw, pitch, roll = 10 * math.pi/180, 20 * math.pi/180, 30 * math.pi/180
+            yaw, pitch, roll = i/10 * math.pi/180, 0 * math.pi/180, 0 * math.pi/180
             self.trajectory.append((x, y, z))
             self.plot.set_data(pos=self.trajectory)
             self.move_drone(x, y, z)
+            print(f"Try rotate drone: {yaw}, {pitch}, {roll}")
             self.rotate_drone(yaw, pitch, roll)
             time.sleep(dt)
 
@@ -145,9 +150,10 @@ class Drone:
         self.screws4.transform = STTransform(translate=[-6*self.scale, 0, 0.6*self.scale])
 
 
+if __name__ == '__main__':
+    drone_scene = DroneScene(keys='interactive', size=(800, 600), show=True)
+    drone_scene.run()
 
-
-if __name__ == '__main__' and sys.flags.interactive == 0:
     # canvas = scene.SceneCanvas(keys='interactive', size=(800, 600), show=True)
     #
     # view = canvas.central_widget.add_view()
@@ -163,7 +169,3 @@ if __name__ == '__main__' and sys.flags.interactive == 0:
     # scene.visuals.XYZAxis(parent=view.scene)
     #
     # canvas.app.run()
-
-
-    drone_scene = DroneScene(keys='interactive', size=(800, 600), show=True)
-    drone_scene.run()

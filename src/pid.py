@@ -1,4 +1,4 @@
-from src.integrator import Integrator, LinearIntegrator
+from integrator import Integrator, LinearIntegrator
 
 
 class PID:

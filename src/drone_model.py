@@ -1,7 +1,7 @@
 import numpy as np
 import numpy.linalg
-from src.integrator import integrate_linear
-from src.utils import rotation_matrix, get_angles_from_rotation_matrix, saturate, saturate_min_max
+from integrator import integrate_linear
+from utils import rotation_matrix, get_angles_from_rotation_matrix, saturate_min_max
 
 
 class DroneModel:
@@ -48,13 +48,6 @@ class DroneModel:
                                      [-wy, wx, 0]])
         return self.rotation_matrix.dot(speeds_matrix)
 
-    # def active_moments(self, engines_speed: np.ndarray) -> np.ndarray:
-    #     k_engine = self.shoulder*self.b_engine
-    #     config_matrix = np.asarray([[0.0, -k_engine, 0.0, k_engine],
-    #                                 [-self.d_engine, self.d_engine, -self.d_engine, self.d_engine],
-    #                                 [k_engine, 0.0, -k_engine, 0.0]], dtype="float64")
-    #     return np.dot(config_matrix, engines_speed**2)
-
     def active_moments(self, engines_speed: np.ndarray) -> np.ndarray:
         k_engine = self.shoulder*self.b_engine
         config_matrix = np.asfarray([[k_engine, -k_engine, -k_engine, k_engine],
@@ -91,7 +84,6 @@ class DroneModel:
     def integrate(self, engines_speed: np.ndarray, dt):
         for i, speed in enumerate(engines_speed):
             engines_speed[i] = saturate_min_max(speed, self.min_limit, self.max_limit)
-            #engines_speed[i] = saturate(speed, self.limit)
 
         self.engines_speeds = engines_speed
 
