@@ -110,10 +110,14 @@ class DroneScene:
 
 
 class Drone:
-    def __init__(self, parent):
-        self.scale = 0.1
+    def __init__(self, parent, scale=0.1):
+        self.scale = scale
         self.body = scene.visuals.Box(3 * self.scale, 2 * self.scale, 6 * self.scale, color=Color("#3f51b5"),
                                       edge_color="black", parent=parent)
+
+        self.head = scene.visuals.Sphere(radius=1*self.scale, parent=self.body)
+        self.head.transform = STTransform(translate=[0, 3*self.scale, 0])
+
         self.camera = scene.visuals.Box(1 * self.scale, 1 * self.scale, 1 * self.scale, color=Color("#3f51b5"),
                                       edge_color="black", parent=self.body)
 
@@ -123,11 +127,24 @@ class Drone:
                                       edge_color="black", parent=self.body)
         self.leg2 = scene.visuals.Box(1 * self.scale, 1 * self.scale, 12 * self.scale, color=Color("red"),
                                       edge_color="black", parent=self.body)
+
         self.leg1.transform = MatrixTransform()
         self.leg2.transform = MatrixTransform()
 
         self.leg1.transform.rotate(45, (0, 0, 1))
         self.leg2.transform.rotate(-45, (0, 0, 1))
+
+        self.screws1 = scene.visuals.Ellipse((0, 0), radius=(2*self.scale, 2*self.scale), parent=self.leg1)
+        self.screws2 = scene.visuals.Ellipse((0, 0), radius=(2*self.scale, 2*self.scale), parent=self.leg1)
+        self.screws3 = scene.visuals.Ellipse((0, 0), radius=(2*self.scale, 2*self.scale), parent=self.leg2)
+        self.screws4 = scene.visuals.Ellipse((0, 0), radius=(2*self.scale, 2*self.scale), parent=self.leg2)
+
+        self.screws1.transform = STTransform(translate=[6*self.scale, 0, 0.6*self.scale])
+        self.screws2.transform = STTransform(translate=[-6*self.scale, 0, 0.6*self.scale])
+        self.screws3.transform = STTransform(translate=[6*self.scale, 0, 0.6*self.scale])
+        self.screws4.transform = STTransform(translate=[-6*self.scale, 0, 0.6*self.scale])
+
+
 
 
 if __name__ == '__main__' and sys.flags.interactive == 0:

@@ -62,10 +62,5 @@ if __name__ == "__main__":
             else:
                 break
 
-    #for i in range(5):
-    #    data = np.asfarray([i, i+1, i+2])
-    #    obj = pickle.dumps(data)
-    #    time.sleep(1)
-    #    sender.send(obj)
     print("Shutdown server")
 
