@@ -1,8 +1,10 @@
+import pickle
 import typing
 import numpy as np
 from dataclasses import dataclass
 from matplotlib import pyplot as plt
 
+from src.sender import Sender
 from src.drone_model import DroneModel
 from src.pid import PID
 from src.integrator import IntegratorFactory, LINEAR
@@ -656,6 +658,8 @@ def model_coords():
 
 
 if __name__ == "__main__":
+    sender = Sender("localhost", 10100)
+
     drone = DroneModel(**drone_params)
     drone.linear_speeds = np.asfarray([0, 0, 0])
     drone.linear_coords = np.asfarray([0, 0, 0])
@@ -664,12 +668,12 @@ if __name__ == "__main__":
     controller = Controller()
 
     dt = 0.01  # second
-    t = int(50 / dt)
+    t = int(30 / dt)
 
     X_des = 500
     Y_des = 200
     Z_des = 1000
-    Yaw_des = 30*np.pi/180
+    Yaw_des = 0*np.pi/180
 
     times = []
 
@@ -682,6 +686,8 @@ if __name__ == "__main__":
 
 
     def trajectory(t):
+        if t > 30:
+            return (t, 200, 500)
         return (t, 200, 0.5*t**2)
 
 
@@ -693,6 +699,10 @@ if __name__ == "__main__":
         measurements.Linear_speeds = drone.linear_speeds
         measurements.Angles = drone.angles
         measurements.Coords = drone.linear_coords
+
+        state = np.asfarray([measurements.Coords, measurements.Angles])
+
+        sender.put(pickle.dumps(state))
 
         Wx.append(measurements.Rotation_speeds[0] * 180 / np.pi)
         Wy.append(measurements.Rotation_speeds[1] * 180 / np.pi)
@@ -710,7 +720,7 @@ if __name__ == "__main__":
         Y.append(measurements.Coords[1])
         Z.append(measurements.Coords[2])
 
-        X_des, Y_des, Z_des = trajectory(times[-1])
+        #X_des, Y_des, Z_des = trajectory(times[-1])
 
         engines_speeds = controller.handle(Yaw_des, [X_des, Y_des, Z_des], measurements, drone.rotation_matrix, dt)
 
@@ -752,11 +762,11 @@ if __name__ == "__main__":
     ax22.legend(["X", "Y", "Z"])
     ax22.grid()
 
-    ax = plt.axes(projection="3d")
-    ax.plot3D(X,Y,Z)
-    ax.grid()
-    ax.set_xlabel("X")
-    ax.set_ylabel("Y")
-    ax.set_zlabel("Z")
+    # ax = plt.axes(projection="3d")
+    # ax.plot3D(X,Y,Z)
+    # ax.grid()
+    # ax.set_xlabel("X")
+    # ax.set_ylabel("Y")
+    # ax.set_zlabel("Z")
 
     plt.show()

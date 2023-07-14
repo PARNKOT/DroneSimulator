@@ -1,6 +1,24 @@
 import numpy as np
 
 
+def rotate_yaw_matrix(yaw) -> np.ndarray:
+    return np.asfarray([[np.cos(yaw), 0, np.sin(yaw)],
+                         [0, 1, 0],
+                         [-np.sin(yaw), 0, np.cos(yaw)]])
+
+
+def rotate_pitch_matrix(pitch) -> np.ndarray:
+    return np.asfarray([[np.cos(pitch), np.sin(pitch), 0],
+                          [-np.sin(pitch), np.cos(pitch), 0],
+                          [0, 0, 1]])
+
+
+def rotate_roll_matrix(roll) -> np.ndarray:
+    return np.asfarray([[1, 0, 0],
+                         [0, np.cos(roll), np.sin(roll)],
+                         [0, -np.sin(roll), np.cos(roll)]])
+
+
 def rotation_matrix(yaw, pitch, roll) -> np.ndarray:
     """
     @param yaw: курс, [рад]
