@@ -49,6 +49,8 @@ control4_params = {
 
 INTEGRATOR_TYPE = LINEAR
 
+metrics = DroneMetrics()
+
 
 class RotationSpeedsControlLoop:
     k_p, k_i, k_d = 250, 0.5, 2
@@ -200,16 +202,21 @@ class Controller:
         Yaw_cur, Pitch_cur, Roll_cur = measurements.Angles
         X_cur, Y_cur, Z_cur = measurements.Coords
 
+        # Команды на линейные скорости (VN, VH, VE)
         X_cmd, thrust_cmd, Z_cmd = self.__controller_coords.handle([x_des, y_des, z_des], [X_cur, Y_cur, Z_cur], dt)
+
+        #_, thrust_cmd, _ = rotation_matrix.dot(np.asfarray([X_cmd, thrust_cmd, Z_cmd]))
 
         metrics.linear_speeds_cmd.append([X_cmd, thrust_cmd, Z_cmd])
 
+        # Команды на углы поворота (крен, тангаж). Pitch_des, Roll_des
         VN_cmd, VH_cmd, VE_cmd = self.__controller_linear_speeds.handle([X_cmd, thrust_cmd, Z_cmd], [VN_cur, VH_cur, VE_cur], dt)
 
-        metrics.angles_cmd.append([VN_cmd, VH_cmd, VE_cmd])
+        metrics.angles_cmd.append([VN_cmd, yaw_des, VE_cmd])
 
-        _, VH_cmd, _ = rotation_matrix.dot(np.asfarray([VN_cmd, VH_cmd, VE_cmd]))
+        #_, VH_cmd_new, _ = rotation_matrix.dot(np.asfarray([VN_cmd, VH_cmd, VE_cmd]))
         VN_cmd, _, VE_cmd = rotate_yaw_matrix(-measurements.Angles[0]).dot(np.asfarray([VN_cmd, VH_cmd, VE_cmd]))
+
         # Команды тангажа и крена ограничиваются +-30 градусами
         VN_cmd = saturate(VN_cmd, self.angles_limits[0])
         VE_cmd = saturate(VE_cmd, self.angles_limits[1])
@@ -670,13 +677,12 @@ def model_coords():
 
     plt.show()
 
-metrics = DroneMetrics()
 
 def main():
     drone = DroneModel(**drone_params)
     drone.linear_speeds = np.asfarray([0, 0, 0])
     drone.linear_coords = np.asfarray([0, 0, 0])
-    drone.set_init_angles(0 * np.pi / 180, 0, 0)
+    drone.set_init_angles(0 * np.pi / 180, 0 * np.pi / 180, 0 * np.pi / 180)
 
     controller = Controller()
     #metrics = DroneMetrics()
@@ -687,7 +693,7 @@ def main():
     X_des = 300
     Y_des = 50
     Z_des = 300
-    Yaw_des = 90 * np.pi / 180
+    Yaw_des = 0 * np.pi / 180
 
     def trajectory(t):
         if t > 30:
@@ -725,4 +731,5 @@ def main():
 
 
 if __name__ == "__main__":
+    #model_rotation_speeds()
     main()
