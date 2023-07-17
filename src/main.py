@@ -28,7 +28,7 @@ def main():
     drone = DroneModel(**drone_params)
     drone.linear_speeds = np.asfarray([0, 0, 0])
     drone.linear_coords = np.asfarray([0, 0, 0])
-    drone.set_init_angles(0, 0 * np.pi / 180, 0)
+    drone.set_init_angles(0 * np.pi / 180, 0 * np.pi / 180, 0)
 
     controller = Controller()
 
@@ -36,9 +36,9 @@ def main():
     t = int(30 / dt)
 
     X_des = 300
-    Y_des = 0
+    Y_des = 50
     Z_des = 300
-    Yaw_des = 5 * np.pi / 180
+    Yaw_des = 90 * np.pi / 180
 
     for i in range(t):
         measurements = MeasuredParams()

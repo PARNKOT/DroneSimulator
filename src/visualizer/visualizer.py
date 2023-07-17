@@ -120,6 +120,8 @@ class Drone:
         self.body = scene.visuals.Box(3 * self.scale, 2 * self.scale, 6 * self.scale, color=Color("#3f51b5"),
                                       edge_color="black", parent=parent)
 
+        scene.visuals.XYZAxis(parent=self.body)
+
         self.head = scene.visuals.Sphere(radius=1*self.scale, parent=self.body)
         self.head.transform = STTransform(translate=[0, 3*self.scale, 0])
 
