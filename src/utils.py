@@ -1,6 +1,10 @@
 import numpy as np
 
 
+RPM_TO_RadPS = np.pi/30
+Rad_TO_DEGREES = 180/np.pi
+
+
 def rotate_yaw_matrix(yaw) -> np.ndarray:
     return np.asfarray([[np.cos(yaw), 0, np.sin(yaw)],
                          [0, 1, 0],

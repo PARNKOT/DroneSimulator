@@ -1,3 +1,6 @@
+import typing
+from abc import abstractmethod
+
 import numpy as np
 import numpy.linalg
 from integrator import integrate_linear
@@ -5,17 +8,15 @@ from utils import rotation_matrix, get_angles_from_rotation_matrix, saturate_min
 
 
 class DroneModel:
-    def __init__(self, mass: float, tensor: np.ndarray, shoulder: float, integrate_func=integrate_linear,
+    def __init__(self, mass: float, tensor: np.ndarray, shoulders: typing.List[float], integrate_func=integrate_linear,
                  b_engine=0, d_engine=0):
         self.mass = mass
         self.tensor = tensor
         self.b_engine = b_engine
         self.d_engine = d_engine
-        self.min_limit = 100
-        self.max_limit = 1000
 
         # Стоит подумать над созданием отдельного класса конфигурации дрона (квадро-, октокоптер и т.д.)
-        self.shoulder = shoulder
+        self.shoulders = shoulders
 
         self.linear_speeds = np.asfarray([0, 0, 0]) # VN (Север), VH (Высота), VE (Восток)
         self.linear_coords = np.asfarray([0, 0, 0]) # XN (Север), YH (Высота), ZE (Восток)
@@ -33,6 +34,56 @@ class DroneModel:
         self.angles = np.asfarray([yaw, pitch, roll])
         self.rotation_matrix = rotation_matrix(yaw, pitch, roll).T
 
+    def rotation_matrix_rights(self):
+        wx, wy, wz = self.rotation_speeds
+        speeds_matrix = np.asfarray([[0, -wz, wy],
+                                     [wz, 0, -wx],
+                                     [-wy, wx, 0]])
+        return self.rotation_matrix.dot(speeds_matrix)
+
+    @abstractmethod
+    def calculate_rights_linear(self, engines_speed: np.ndarray) -> np.ndarray:
+        pass
+
+    @abstractmethod
+    def active_moments(self, engines_speed: np.ndarray) -> np.ndarray:
+        pass
+
+    @abstractmethod
+    def calculate_rights_rotation(self, engines_speed: np.ndarray) -> np.ndarray:
+        pass
+
+    def integrate_linear(self, engines_speed: np.ndarray, dt):
+        self.linear_coords = self.integrate_func(self.linear_coords, self.linear_speeds, dt)
+
+        accelerations = self.calculate_rights_linear(engines_speed)
+        if accelerations[1] <= 0 and self.linear_coords[1] <= 0: # !!!!!!!!!
+            accelerations[1] = 0
+
+        self.linear_speeds = self.integrate_func(self.linear_speeds, accelerations, dt)
+
+    def integrate_rotation(self, engines_speed: np.ndarray, dt):
+        self.rotation_speeds = self.integrate_func(self.rotation_speeds,
+                                                      self.calculate_rights_rotation(engines_speed), dt)
+
+    def integrate_rotation_matrix(self, dt):
+        self.rotation_matrix = self.integrate_func(self.rotation_matrix, self.rotation_matrix_rights(), dt)
+        self.angles = get_angles_from_rotation_matrix(self.rotation_matrix)
+
+    def integrate(self, engines_speed: np.ndarray, dt):
+        # for i, speed in enumerate(engines_speed):
+        #     engines_speed[i] = saturate_min_max(speed, self.min_limit, self.max_limit)
+
+        self.engines_speeds = engines_speed
+
+        self.integrate_linear(engines_speed, dt)
+        self.linear_coords[1] = saturate_min_max(self.linear_coords[1], 0, self.linear_coords[1])
+
+        self.integrate_rotation_matrix(dt)
+        self.integrate_rotation(engines_speed, dt)
+
+
+class DroneMini(DroneModel):
     def calculate_rights_linear(self, engines_speed: np.ndarray) -> np.ndarray:
         res: np.ndarray
         G = np.asfarray([0, -9.81, 0])
@@ -41,15 +92,8 @@ class DroneModel:
         res = np.asfarray([0, self.b_engine*np.sum(engines_speed**2)/self.mass, 0])
         return self.rotation_matrix.dot(res) + G + resistance
 
-    def rotation_matrix_rights(self):
-        wx, wy, wz = self.rotation_speeds
-        speeds_matrix = np.asfarray([[0, -wz, wy],
-                                     [wz, 0, -wx],
-                                     [-wy, wx, 0]])
-        return self.rotation_matrix.dot(speeds_matrix)
-
     def active_moments(self, engines_speed: np.ndarray) -> np.ndarray:
-        k_engine = self.shoulder*self.b_engine
+        k_engine = self.shoulders[0]*self.b_engine
         config_matrix = np.asfarray([[k_engine, -k_engine, -k_engine, k_engine],
                                     [-self.d_engine, self.d_engine, -self.d_engine, self.d_engine],
                                     [k_engine, k_engine, -k_engine, -k_engine]])
@@ -65,34 +109,6 @@ class DroneModel:
 
         return inverse_tensor.dot(res)
 
-    def integrate_linear(self, engines_speed: np.ndarray, dt):
-        self.linear_coords = self.integrate_func(self.linear_coords, self.linear_speeds, dt)
-
-        accelerations = self.calculate_rights_linear(engines_speed)
-        if accelerations[1] <= 0 and self.linear_coords[1] <= 0: # !!!!!!!!!
-            accelerations[1] = 0
-        self.linear_speeds = self.integrate_func(self.linear_speeds, accelerations, dt)
-
-    def integrate_rotation(self, engines_speed: np.ndarray, dt):
-        self.rotation_speeds = self.integrate_func(self.rotation_speeds,
-                                                      self.calculate_rights_rotation(engines_speed), dt)
-
-    def integrate_rotation_matrix(self, dt):
-        self.rotation_matrix = self.integrate_func(self.rotation_matrix, self.rotation_matrix_rights(), dt)
-        self.angles = get_angles_from_rotation_matrix(self.rotation_matrix)
-
-    def integrate(self, engines_speed: np.ndarray, dt):
-        for i, speed in enumerate(engines_speed):
-            engines_speed[i] = saturate_min_max(speed, self.min_limit, self.max_limit)
-
-        self.engines_speeds = engines_speed
-
-        self.integrate_linear(engines_speed, dt)
-        self.linear_coords[1] = saturate_min_max(self.linear_coords[1], 0, self.linear_coords[1])
-
-        self.integrate_rotation_matrix(dt)
-        self.integrate_rotation(engines_speed, dt)
-
 
 if __name__ == "__main__":
     from matplotlib import pyplot as plt
@@ -101,9 +117,9 @@ if __name__ == "__main__":
     tensor = np.asarray([[0.1, 0.0, 0.0],
                          [0.0, 0.2, 0.0],
                          [0.0, 0.0, 0.3]], dtype="float64")
-    shoulder = 0.15
+    shoulders = [0.15]
 
-    model = DroneModel(0.5, tensor, shoulder)
+    model = DroneModel(0.5, tensor, shoulders)
     model.b_engine = 7e-7
     model.d_engine = 7e-7
 
