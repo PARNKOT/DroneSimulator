@@ -56,7 +56,6 @@ class DroneScene:
         matrix = self.cube.transform.transforms[1].matrix.copy()
         matrix[:3, :3] = rotate_pitch_matrix(-yaw).dot(rotate_roll_matrix(pitch).dot(rotate_yaw_matrix(roll).T))
         self.cube.transform.transforms[1].matrix = matrix
-        #self.cube.transform.transforms[1].update()
 
     def fetcher(self):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:

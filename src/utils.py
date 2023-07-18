@@ -48,10 +48,12 @@ def rotation_matrix(yaw, pitch, roll) -> np.ndarray:
 
 def get_angles_from_rotation_matrix(matrix: np.ndarray):
     yaw = np.arctan2(matrix[2][0], matrix[0][0])
-    pitch = np.arcsin(matrix[1][0])
+    #pitch = np.arcsin(matrix[1][0])
+    pitch = np.arctan2(matrix[1][0], np.sqrt(matrix[1][1]**2 + matrix[1][2]**2))
     roll = np.arctan2(-matrix[1][2], matrix[1][1])
 
     return np.asfarray([yaw, pitch, roll])
+
 
 def saturate(value, limit):
     if value > limit:
@@ -60,6 +62,7 @@ def saturate(value, limit):
         return -limit
     return value
 
+
 def saturate_min_max(value, min_limit, max_limit):
     if value > max_limit:
         return max_limit
@@ -67,10 +70,3 @@ def saturate_min_max(value, min_limit, max_limit):
         return min_limit
     return value
 
-# def convert_angles_speed(angles: typing.Sequence, angles_speed_from: np.ndarray):
-#     yaw, pitch, roll = angles[0], angles[1], angles[2]
-#     convert_matrix = np.asfarray([[0, -np.cos(roll)/np.cos(pitch), np.sin(roll)/np.cos(pitch)],
-#                                   [0, np.sin(roll), np.cos(roll)],
-#                                   [1, -np.tan(pitch)*np.cos(roll), np.tan(pitch)*np.sin(roll)]])
-#
-#     return convert_matrix.dot(angles_speed_from)

@@ -1,4 +1,26 @@
+import random
+
 from integrator import Integrator, LinearIntegrator
+
+
+class Differentiator:
+    def __init__(self, start_value=0, memory_limit=10):
+        self._start_value = start_value
+        self._memory = [start_value]
+        self._memory_limit = memory_limit
+
+    def differentiate(self, value, dt):
+        if len(self._memory) == self._memory_limit:
+            self._memory.pop(0)
+
+        self._memory.append(value)
+
+        new_sum = sum(self._memory)/len(self._memory)
+        ret = (new_sum - self._start_value) / dt
+
+        self._start_value = new_sum
+
+        return ret
 
 
 class PID:
@@ -8,6 +30,7 @@ class PID:
         self.__k_d = k_d
         self.__past_value = 0
         self.__integrator = integrator
+        self.__differentiator = Differentiator()
 
     def reset(self, value):
         self.__integrator.reset(value)
@@ -18,7 +41,7 @@ class PID:
         self.__integrator.integrate(value, dt)
         res += self.__k_i * self.__integrator.value
 
-        res += self.__k_d * self.differentiate(value, dt)
+        res += self.__k_d * self.__differentiator.differentiate(value, dt)#self.differentiate(value, dt)
         self.__past_value = value
 
         return res
@@ -27,19 +50,43 @@ class PID:
         return (value - self.__past_value)/dt
 
 
+class Filter:
+    def __init__(self, memory_limit=10):
+        self._memory = []
+        self._memory_limit = memory_limit
+
+    def handle(self, value):
+        if len(self._memory) == self._memory_limit:
+            self._memory.pop(0)
+
+        self._memory.append(value)
+
+        return sum(self._memory) / len(self._memory)
+
 
 if __name__ == "__main__":
     from matplotlib import pyplot as plt
     dt = 0.1
-    times = [0]
-    values = [5]
-    signal = 5
+    times = []
+    errors = []
+    values = []
+    filtered = []
+    #signal = 5
 
-    pid = PID(0.1, 0.0, 0.00, integrator=LinearIntegrator())
+    #pid = PID(0.1, 0.0, 0.00, integrator=LinearIntegrator())
+    diff = Differentiator(memory_limit=10)
+    filter = Filter(memory_limit=50)
 
     for i in range(1000):
-        times.append(times[i] + dt)
-        values.append(pid.calculate(signal, dt), 10)
+        times.append(i*dt)
+        errors.append(random.gauss(0, 5))
+        filtered.append(filter.handle(errors[i]))
+        #values.append(diff.differentiate(errors[i], dt))
 
-    plt.plot(times, values)
+    plt.plot(times, errors)
+    plt.plot(times, filtered)
+    #avg = sum(errors)/ len(errors)
+    #plt.plot([times[0], times[-1]], [avg, avg])
+    #plt.plot(times, values)
+    plt.legend(["Errors", "Values"])
     plt.show()

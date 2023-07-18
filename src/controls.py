@@ -1,12 +1,14 @@
 import math
+import random
 import typing
 import numpy as np
 from dataclasses import dataclass
+from matplotlib import pyplot as plt
 
-from drone_model import DroneModel, DroneMini
-from pid import PID
+from drone_model import DroneMini
+from pid import PID, Filter
 from integrator import IntegratorFactory, LINEAR
-from utils import saturate, rotate_yaw_matrix, Rad_TO_DEGREES, RPM_TO_RadPS
+from utils import saturate, saturate_min_max, rotate_yaw_matrix, Rad_TO_DEGREES, RPM_TO_RadPS
 from command_mixer import mix_commands_cross
 from metrics import DroneMetrics, show_drone_graphics
 
@@ -25,6 +27,9 @@ INTEGRATOR_TYPE = LINEAR
 
 metrics = DroneMetrics()
 
+GYRO_ERROR = 1 # degrees per second
+LINEAR_SPEED_ERROR = 0.05
+
 
 class RotationSpeedsControlLoop:
     k_p, k_i, k_d = 250, 0.5, 2
@@ -33,6 +38,12 @@ class RotationSpeedsControlLoop:
         self.__pid_wx = PID(k_p, k_i, k_d, IntegratorFactory.create(INTEGRATOR_TYPE))
         self.__pid_wy = PID(k_p + 350, k_i + 10, k_d, IntegratorFactory.create(INTEGRATOR_TYPE))
         self.__pid_wz = PID(k_p, k_i, k_d, IntegratorFactory.create(INTEGRATOR_TYPE))
+        limit = 10
+        self._filters = [
+            Filter(memory_limit=limit),
+            Filter(memory_limit=limit),
+            Filter(memory_limit=limit),
+        ]
         self.limits = None
 
     def set_initial_state(self, init_speeds: typing.Sequence):
@@ -49,9 +60,25 @@ class RotationSpeedsControlLoop:
             wy_des = saturate(wy_des, self.limits[1])
             wz_des = saturate(wz_des, self.limits[2])
 
-        wx_cmd = self.__pid_wx.calculate(wx_des-wx_cur, dt)
-        wy_cmd = self.__pid_wy.calculate(wy_des-wy_cur, dt)
-        wz_cmd = self.__pid_wz.calculate(wz_des-wz_cur, dt)
+        # delta_wx = self._filters[0].handle(wx_des-wx_cur)
+        # delta_wy = self._filters[1].handle(wy_des-wy_cur)
+        # delta_wz = self._filters[2].handle(wz_des-wz_cur)
+
+        # wx_cur = self._filters[0].handle(wx_cur)
+        # wy_cur = self._filters[1].handle(wy_cur)
+        # wz_cur = self._filters[2].handle(wz_cur)
+
+        delta_wx = wx_des-wx_cur
+        delta_wy = wy_des-wy_cur
+        delta_wz = wz_des-wz_cur
+
+        wx_cmd = self.__pid_wx.calculate(delta_wx, dt)
+        wy_cmd = self.__pid_wy.calculate(delta_wy, dt)
+        wz_cmd = self.__pid_wz.calculate(delta_wz, dt)
+
+        wx_cmd = self._filters[0].handle(wx_cmd)
+        wy_cmd = self._filters[1].handle(wy_cmd)
+        wz_cmd = self._filters[2].handle(wz_cmd)
 
         return np.asfarray([wx_cmd, wy_cmd, wz_cmd])
 
@@ -62,9 +89,15 @@ class AnglesControlLoop:
 
     def __init__(self, k_p, k_i, k_d):
         #self.__pid_yaw = PID(3, 0., 0.6, IntegratorFactory.create(INTEGRATOR_TYPE))
-        self.__pid_yaw = PID(k_p+10, k_i+1, k_d+1, IntegratorFactory.create(INTEGRATOR_TYPE))
+        self.__pid_yaw = PID(k_p+3, k_i+0.5, k_d+1, IntegratorFactory.create(INTEGRATOR_TYPE))
         self.__pid_pitch = PID(k_p, k_i, k_d, IntegratorFactory.create(INTEGRATOR_TYPE))
         self.__pid_roll = PID(k_p, k_i, k_d, IntegratorFactory.create(INTEGRATOR_TYPE))
+        limit = 1
+        self._filters = [
+            Filter(memory_limit=limit),
+            Filter(memory_limit=limit),
+            Filter(memory_limit=limit),
+        ]
         self.limits = None
 
     def set_initial_state(self, init_angles: typing.Sequence):
@@ -85,6 +118,10 @@ class AnglesControlLoop:
         wy_cmd = self.__pid_yaw.calculate(yaw_des - yaw_cur, dt)
         wz_cmd = self.__pid_pitch.calculate(pitch_des - pitch_cur, dt)
 
+        wx_cmd = self._filters[0].handle(wx_cmd)
+        wy_cmd = self._filters[1].handle(wy_cmd)
+        wz_cmd = self._filters[2].handle(wz_cmd)
+
         return np.asfarray([wx_cmd, -wy_cmd, wz_cmd])
 
 
@@ -92,7 +129,7 @@ class LinearSpeedsControlLoop:
     def __init__(self, k_p, k_i, k_d):
         #15, 0.15, 70
         self.__pid_VN = PID(k_p, k_i, k_d, IntegratorFactory.create(INTEGRATOR_TYPE))
-        self.__pid_VH = PID(k_p, k_i, k_d, IntegratorFactory.create(INTEGRATOR_TYPE)) # 5, 3.5, 0
+        self.__pid_VH = PID(50, 50, 0.0, IntegratorFactory.create(INTEGRATOR_TYPE)) # 5, 3.5, 0
         self.__pid_VE = PID(k_p, k_i, k_d, IntegratorFactory.create(INTEGRATOR_TYPE))
         self.limits = None
 
@@ -105,14 +142,14 @@ class LinearSpeedsControlLoop:
         VN_des, VH_des, VE_des = speeds_des
         VN_cur, VH_cur, VE_cur = speeds_cur
 
+        if self.limits is not None:
+            VN_des = saturate(VN_des, self.limits[0])
+            VH_des = saturate(VH_des, self.limits[1])
+            VE_des = saturate(VE_des, self.limits[2])
+
         VN_cmd = self.__pid_VN.calculate(VN_des - VN_cur, dt)
         VH_cmd = self.__pid_VH.calculate(VH_des - VH_cur, dt)
         VE_cmd = self.__pid_VE.calculate(VE_des - VE_cur, dt)
-
-        if self.limits is not None:
-            VN_cmd = saturate(VN_cmd, self.limits[0])
-            VH_cmd = saturate(VH_cmd, self.limits[1])
-            VE_cmd = saturate(VE_cmd, self.limits[2])
 
         return np.asfarray([-VN_cmd, VH_cmd, VE_cmd])
 
@@ -120,7 +157,7 @@ class LinearSpeedsControlLoop:
 class CoordsControlLoop:
     def __init__(self, k_p, k_i, k_d):
         #15, 0.15, 70
-        self.__pid_thrust = PID(0.3, 0.0, 0, IntegratorFactory.create(INTEGRATOR_TYPE))
+        self.__pid_thrust = PID(k_p, k_i, k_d, IntegratorFactory.create(INTEGRATOR_TYPE))
         self.__pid_x = PID(k_p, k_i, k_d, IntegratorFactory.create(INTEGRATOR_TYPE))
         self.__pid_z = PID(k_p, k_i, k_d, IntegratorFactory.create(INTEGRATOR_TYPE))
 
@@ -151,26 +188,26 @@ class MeasuredParams:
 class Controller:
     control1_params = {
         "k_p": 100,
-        "k_i": 1.5,
+        "k_i": 2.5,
         "k_d": 0,
     }
 
     control2_params = {
-        "k_p": 5,
+        "k_p": 1.5,
         "k_i": 0.1,
-        "k_d": 1,
+        "k_d": 0,
     }
 
     control3_params = {
-        "k_p": 0.3,
-        "k_i": 0.005,
-        "k_d": 0,
+        "k_p": 0.4,
+        "k_i": 0.003,
+        "k_d": 0.1,
     }
 
     control4_params = {
-        "k_p": 0.08,
-        "k_i": 0.0001,
-        "k_d": 0,
+        "k_p": 0.5,
+        "k_i": 0.001,
+        "k_d": 0.0,
     }
 
     def __init__(self):
@@ -179,12 +216,48 @@ class Controller:
         self.__controller_linear_speeds = LinearSpeedsControlLoop(**self.control3_params)
         self.__controller_coords = CoordsControlLoop(**self.control4_params)
 
-        self.angles_limits = (30 * np.pi/180, 30*np.pi/180)
+        k_p, k_i, k_d = 1, 0, 0
+        self.__engines_pids = [
+            PID(k_p, k_i, k_d, IntegratorFactory.create(LINEAR)),
+            PID(k_p, k_i, k_d, IntegratorFactory.create(LINEAR)),
+            PID(k_p, k_i, k_d, IntegratorFactory.create(LINEAR)),
+            PID(k_p, k_i, k_d, IntegratorFactory.create(LINEAR))
+        ]
 
-    def handle(self, yaw_des, coords_des: typing.Sequence, measurements: MeasuredParams, rotation_matrix: np.ndarray, dt):
-        x_des, y_des, z_des = coords_des
+        min_engine_rpms = 1000
+        max_engine_rpms = 7000
 
-        metrics.coords_cmd.append([x_des, y_des, z_des])
+        self.min_engine_speed = min_engine_rpms * RPM_TO_RadPS  # радиан в секунду
+        self.max_engine_speed = max_engine_rpms * RPM_TO_RadPS  # радиан в секунду
+
+    @property
+    def angular_speeds_limits(self):
+        return self.__controller_rotation_speeds.limits
+
+    @angular_speeds_limits.setter
+    def angular_speeds_limits(self, value):
+        self.__controller_rotation_speeds.limits = value
+
+    @property
+    def angles_limits(self):
+        return self.__controller_angles.limits
+
+    @angles_limits.setter
+    def angles_limits(self, value):
+        self.__controller_angles.limits = value
+
+    @property
+    def linear_speeds_limits(self):
+        return self.__controller_linear_speeds.limits
+
+    @linear_speeds_limits.setter
+    def linear_speeds_limits(self, value):
+        self.__controller_linear_speeds.limits = value
+
+    def handle(self, yaw_des, coords_des: typing.Sequence, measurements: MeasuredParams, dt):
+        X_des, Y_des, Z_des = coords_des
+
+        metrics.coords_cmd.append([X_des, Y_des, Z_des])
 
         Wx_cur, Wy_cur, Wz_cur = measurements.Rotation_speeds
         VN_cur, VH_cur, VE_cur = measurements.Linear_speeds
@@ -192,31 +265,32 @@ class Controller:
         X_cur, Y_cur, Z_cur = measurements.Coords
 
         # Команды на линейные скорости (VN, VH, VE)
-        X_cmd, thrust_cmd, Z_cmd = self.__controller_coords.handle([x_des, y_des, z_des], [X_cur, Y_cur, Z_cur], dt)
+        X_cmd, thrust_cmd, Z_cmd = self.__controller_coords.handle([X_des, Y_des, Z_des], [X_cur, Y_cur, Z_cur], dt)
 
         #_, thrust_cmd, _ = rotation_matrix.dot(np.asfarray([X_cmd, thrust_cmd, Z_cmd]))
 
         metrics.linear_speeds_cmd.append([X_cmd, thrust_cmd, Z_cmd])
 
         # Команды на углы поворота (крен, тангаж). Pitch_des, Roll_des
-        VN_cmd, VH_cmd, VE_cmd = self.__controller_linear_speeds.handle([X_cmd, thrust_cmd, Z_cmd], [VN_cur, VH_cur, VE_cur], dt)
+        VN_cmd, VH_cmd, VE_cmd = self.__controller_linear_speeds.handle([X_cmd, thrust_cmd, Z_cmd],
+                                                                        [VN_cur, VH_cur, VE_cur], dt)
 
         metrics.angles_cmd.append([VN_cmd, yaw_des, VE_cmd])
 
         #_, VH_cmd_new, _ = rotation_matrix.dot(np.asfarray([VN_cmd, VH_cmd, VE_cmd]))
         VN_cmd, _, VE_cmd = rotate_yaw_matrix(-measurements.Angles[0]).dot(np.asfarray([VN_cmd, VH_cmd, VE_cmd]))
 
-        # Команды тангажа и крена ограничиваются +-30 градусами
-        VN_cmd = saturate(VN_cmd, self.angles_limits[0])
-        VE_cmd = saturate(VE_cmd, self.angles_limits[1])
-
-        thrust, *speeds_des = self.__controller_angles.handle(VH_cmd, [yaw_des, VN_cmd, VE_cmd],
+        speeds_des = self.__controller_angles.handle([yaw_des, VN_cmd, VE_cmd],
                                               [Yaw_cur, Pitch_cur, Roll_cur], dt)
 
         metrics.angular_speeds_cmd.append(list(speeds_des))
 
-        engines_speeds = mix_commands_cross(self.__controller_rotation_speeds.handle(thrust, speeds_des,
+        engines_speeds = mix_commands_cross(VH_cmd, self.__controller_rotation_speeds.handle(speeds_des,
                                                             [Wx_cur, Wy_cur, Wz_cur], dt))
+
+        for i, speed in enumerate(engines_speeds):
+            speed = self.__engines_pids[i].calculate(speed, dt)
+            engines_speeds[i] = saturate_min_max(speed, self.min_engine_speed, self.max_engine_speed)
 
         metrics.engines_speeds.append(list(engines_speeds))
 
@@ -225,14 +299,9 @@ class Controller:
 
 
 def model_rotation_speeds():
-    from matplotlib import pyplot as plt
-    from src.drone_model import DroneMini
-    from src.command_mixer import mix_commands_cross
-    from src.utils import saturate, saturate_min_max
-
     drone = DroneMini(**drone_params)
 
-    k_p, k_i, k_d = 100, 1.5, 0
+    k_p, k_i, k_d = 100, 10.5, 0.0
 
     control1 = RotationSpeedsControlLoop(k_p, k_i, k_d)
     control1.limits = np.asfarray([200, 200, 200]) / Rad_TO_DEGREES
@@ -244,11 +313,11 @@ def model_rotation_speeds():
     max_engine_speed = max_engine_rpms * RPM_TO_RadPS # радиан в секунду
 
     dt = 0.01  # second
-    t = int(1/dt)
+    t = int(5/dt)
 
     Pdes = 305 # 305 - команда, при которой появляется положительная вертикальная скорость
-    Wdes_x = 10 / Rad_TO_DEGREES
-    Wdes_y = 1 / Rad_TO_DEGREES
+    Wdes_x = 0 / Rad_TO_DEGREES
+    Wdes_y = 0 / Rad_TO_DEGREES
     Wdes_z = 205 / Rad_TO_DEGREES
 
     times = []
@@ -281,6 +350,13 @@ def model_rotation_speeds():
 
         Wcur_x, Wcur_y, Wcur_z = drone.rotation_speeds
         Yaw_cur, Pitch_cur, Roll_cur = drone.angles
+
+        error1 = random.gauss(0, GYRO_ERROR/Rad_TO_DEGREES)
+        error2 = random.gauss(0, GYRO_ERROR/Rad_TO_DEGREES)
+        error3 = random.gauss(0, GYRO_ERROR/Rad_TO_DEGREES)
+        Wcur_x += error1
+        Wcur_y += error2
+        Wcur_z += error3
 
         metrics.linear_speeds.append(list(measurements.Linear_speeds))
 
@@ -336,20 +412,15 @@ def model_rotation_speeds():
 
 
 def model_rotation():
-    from matplotlib import pyplot as plt
-    from src.drone_model import DroneModel, DroneMini
-    from src.command_mixer import mix_commands_cross
-    from src.utils import saturate, saturate_min_max
-
     drone = DroneMini(**drone_params)
 
     control1_params = {
         "k_p": 100,
-        "k_i": 1.5,
+        "k_i": 10.5,
         "k_d": 0,
     }
 
-    k_p, k_i, k_d = 5, 0.1, 1
+    k_p, k_i, k_d = 1.5, 0.1, 0
 
     min_engine_rpms = 1000
     max_engine_rpms = 7000
@@ -367,9 +438,9 @@ def model_rotation():
     t = int(10/dt)
 
     Pdes = 305
-    Yaw_des = 30 / Rad_TO_DEGREES
-    Pitch_des = 5 / Rad_TO_DEGREES
-    Roll_des = 5 / Rad_TO_DEGREES
+    Yaw_des = 20 / Rad_TO_DEGREES
+    Pitch_des = 35 / Rad_TO_DEGREES
+    Roll_des = 40 / Rad_TO_DEGREES
 
     times = []
 
@@ -401,6 +472,13 @@ def model_rotation():
 
         Wcur_x, Wcur_y, Wcur_z = drone.rotation_speeds
         Yaw_cur, Pitch_cur, Roll_cur = drone.angles
+
+        error1 = random.gauss(0, GYRO_ERROR/Rad_TO_DEGREES)
+        error2 = random.gauss(0, GYRO_ERROR/Rad_TO_DEGREES)
+        error3 = random.gauss(0, GYRO_ERROR/Rad_TO_DEGREES)
+        Wcur_x += error1
+        Wcur_y += error2
+        Wcur_z += error3
 
         metrics.linear_speeds.append(list(measurements.Linear_speeds))
 
@@ -456,32 +534,31 @@ def model_rotation():
 
 
 def model_linear_speeds():
-    from matplotlib import pyplot as plt
-    from src.drone_model import DroneModel
-    from src.command_mixer import mix_commands_cross
-    from src.utils import saturate, saturate_min_max
-
     drone = DroneMini(**drone_params)
     drone.linear_speeds = np.asfarray([0, 0, 0])
     drone.linear_coords = np.asfarray([0, 0, 0])
-    drone.set_init_angles(0, 0*np.pi/180, 0*np.pi/180)
+    drone.set_init_angles(0 / Rad_TO_DEGREES, 0*np.pi/180, 0*np.pi/180)
 
     control1_params = {
         "k_p": 100,
-        "k_i": 1.5,
+        "k_i": 2.5,
         "k_d": 0,
     }
 
     control2_params = {
-        "k_p": 5,
+        "k_p": 1.5,
         "k_i": 0.1,
-        "k_d": 1,
+        "k_d": 0,
     }
 
-    k_p, k_i, k_d = 1000, 0.0, 0.0
+    k_p, k_i, k_d = 0.4, 0.003, 0.1
 
     control1 = RotationSpeedsControlLoop(**control1_params)
-    control2 = AnglesControlLoop(**control2_params)
+    control1.limits = np.asfarray([200, 200, 200]) / Rad_TO_DEGREES
+
+    control2 = AnglesControlLoop(k_p, k_i, k_d)
+    control2.limits = np.asfarray([math.inf, 30, 30]) / Rad_TO_DEGREES
+
     control3 = LinearSpeedsControlLoop(k_p, k_i, k_d)
     control3.limits = [15, 6, 15]
 
@@ -492,11 +569,11 @@ def model_linear_speeds():
     max_engine_speed = max_engine_rpms * RPM_TO_RadPS # радиан в секунду
 
     dt = 0.01  # second
-    t = int(10/dt)
+    t = int(20/dt)
 
-    VN_des = 0
-    VH_des = 3
-    VE_des = 0
+    VN_des = 15
+    VH_des = 6
+    VE_des = 15
     Yaw_des = 0
 
     times = []
@@ -525,6 +602,20 @@ def model_linear_speeds():
         VN_cur, VH_cur, VE_cur = drone.linear_speeds
         Yaw_cur, Pitch_cur, Roll_cur = drone.angles
         x, y, z = drone.linear_coords
+
+        error1 = random.gauss(0, GYRO_ERROR/Rad_TO_DEGREES)
+        error2 = random.gauss(0, GYRO_ERROR/Rad_TO_DEGREES)
+        error3 = random.gauss(0, GYRO_ERROR/Rad_TO_DEGREES)
+        Wcur_x += error1
+        Wcur_y += error2
+        Wcur_z += error3
+
+        error4 = random.gauss(0, LINEAR_SPEED_ERROR)
+        error5 = random.gauss(0, LINEAR_SPEED_ERROR)
+        error6 = random.gauss(0, LINEAR_SPEED_ERROR)
+        VN_cur += error4
+        VH_cur += error5
+        VE_cur += error6
 
         Yaw.append(Yaw_cur * 180 / np.pi)
         Pitch.append(Pitch_cur * 180 / np.pi)
@@ -597,29 +688,62 @@ def model_linear_speeds():
 
 
 def model_coords():
-    from matplotlib import pyplot as plt
-    from src.drone_model import DroneModel
-    from src.command_mixer import mix_commands_cross
-    from src.utils import saturate, saturate_min_max
-    drone = DroneModel(**drone_params)
+    drone = DroneMini(**drone_params)
     drone.linear_speeds = np.asfarray([0, 0, 0])
     drone.linear_coords = np.asfarray([0, 0, 0])
-    drone.set_init_angles(0, 0 * np.pi / 180, 0)
+    drone.set_init_angles(50 / Rad_TO_DEGREES, 0*np.pi/180, 0*np.pi/180)
 
-    k_p, k_i, k_d = 0.08, 0.0001, 0.0
+    control1_params = {
+        "k_p": 100,
+        "k_i": 2.5,
+        "k_d": 0,
+    }
+
+    control2_params = {
+        "k_p": 1.5,
+        "k_i": 0.1,
+        "k_d": 0,
+    }
+
+    control3_params = {
+        "k_p": 0.4,
+        "k_i": 0.003,
+        "k_d": 0.1,
+    }
+
+    control4_params = {
+        "k_p": 0.5,
+        "k_i": 0.001,
+        "k_d": 0.0,
+    }
+
+    # k_p, k_i, k_d = 1.0, 0.001, 0.05
+    k_p, k_i, k_d = 0.5, 0.001, 0.01
 
     control1 = RotationSpeedsControlLoop(**control1_params)
+    control1.limits = np.asfarray([200, 200, 200]) / Rad_TO_DEGREES
+
     control2 = AnglesControlLoop(**control2_params)
+    control2.limits = np.asfarray([math.inf, 30, 30]) / Rad_TO_DEGREES
+
     control3 = LinearSpeedsControlLoop(**control3_params)
-    control4 = CoordsControlLoop(k_p, k_i, k_d)
+    control3.limits = [15, 6, 15]
+
+    control4 = CoordsControlLoop(**control4_params)
+
+    min_engine_rpms = 1000
+    max_engine_rpms = 7000
+
+    min_engine_speed = min_engine_rpms * RPM_TO_RadPS # радиан в секунду
+    max_engine_speed = max_engine_rpms * RPM_TO_RadPS # радиан в секунду
 
     dt = 0.01  # second
-    t = int(50 / dt)
+    t = int(60/dt)
 
-    X_des = 100
-    Y_des = 100
-    Z_des = 100
-    Yaw_des = 30*np.pi/180
+    X_des = 200
+    Y_des = 50
+    Z_des = 300
+    Yaw_des = 0 / Rad_TO_DEGREES
 
     times = []
 
@@ -630,123 +754,13 @@ def model_coords():
 
     speeds = [[], [], [], []]
 
+    measurements = MeasuredParams()
+
     for i in range(t):
         # if i == int(0.5*t):
         #     VH_des = 2
-
+        metrics.times.append(i*dt)
         times.append(i * dt)
-
-        Wcur_x, Wcur_y, Wcur_z = drone.rotation_speeds
-        VN_cur, VH_cur, VE_cur = drone.linear_speeds
-        Yaw_cur, Pitch_cur, Roll_cur = drone.angles
-        X_cur, Y_cur, Z_cur = drone.linear_coords
-
-        Yaw.append(Yaw_cur * 180 / np.pi)
-        Pitch.append(Pitch_cur * 180 / np.pi)
-        Roll.append(Roll_cur * 180 / np.pi)
-
-        VN.append(VN_cur)
-        VH.append(VH_cur)
-        VE.append(VE_cur)
-
-        X.append(X_cur)
-        Y.append(Y_cur)
-        Z.append(Z_cur)
-
-        Wx.append(Wcur_x * 180 / np.pi)
-        Wy.append(Wcur_y * 180 / np.pi)
-        Wz.append(Wcur_z * 180 / np.pi)
-
-        x_cmd, thrust_cmd, z_cmd = control4.handle([X_des, Y_des, Z_des], [X_cur, Y_cur, Z_cur], dt)
-
-        VN_cmd, VH_cmd, VE_cmd = control3.handle([x_cmd, thrust_cmd, z_cmd], [VN_cur, VH_cur, VE_cur], dt)
-
-        _, VH_cmd, _ = drone.rotation_matrix.dot(np.asfarray([VN_cmd, VH_cmd, VE_cmd]))
-
-        # VH_cmd *= VH_cmd/VH_cmd_new
-        # VH_cmd += 2
-
-        # Команды тангажа и крена ограничиваются +-30 градусами
-        VN_cmd = saturate(VN_cmd, 30 * np.pi / 180)
-        VE_cmd = saturate(VE_cmd, 30 * np.pi / 180)
-        # VH_cmd = 0
-
-        thrust, *speeds_des = control2.handle(VH_cmd, [Yaw_des, VN_cmd, VE_cmd],
-                                              [Yaw_cur, Pitch_cur, Roll_cur], dt)
-
-        # for i, speed in enumerate(speeds_des):
-        #     speeds_des[i] = saturate(speed, 40)
-
-        engines_speeds = mix_commands_cross(control1.handle(thrust, speeds_des,
-                                                            [Wcur_x, Wcur_y, Wcur_z], dt))
-
-        for i, speed in enumerate(drone.engines_speeds):
-            speeds[i].append(speed)
-
-        drone.integrate(engines_speeds, dt)
-
-    fig, ((ax11, ax12, ax13), (ax21, ax22, ax23)) = plt.subplots(2, 3)
-
-    ax11.plot(times, Wx)
-    ax11.plot(times, Wy)
-    ax11.plot(times, Wz)
-    ax11.grid()
-    ax11.legend(["Wx", "Wy", "Wz"])
-
-    ax12.plot(times, speeds[0])
-    ax12.plot(times, speeds[1])
-    ax12.plot(times, speeds[2])
-    ax12.plot(times, speeds[3])
-    ax12.legend(["W1", "W2", "W3", "W4"])
-    ax12.grid()
-
-    ax13.plot(times, Yaw)
-    ax13.plot(times, Pitch)
-    ax13.plot(times, Roll)
-    ax13.legend(["Yaw", "Pitch", "Roll"])
-    ax13.grid()
-
-    ax21.plot(times, VN)
-    ax21.plot(times, VH)
-    ax21.plot(times, VE)
-    ax21.legend(["VN", "VH", "VE"])
-    ax21.grid()
-
-    ax22.plot(times, X)
-    ax22.plot(times, Y)
-    ax22.plot(times, Z)
-    ax22.legend(["X", "Y", "Z"])
-    ax22.grid()
-
-    plt.show()
-
-
-def main():
-    drone = DroneModel(**drone_params)
-    drone.linear_speeds = np.asfarray([0, 0, 0])
-    drone.linear_coords = np.asfarray([0, 0, 0])
-    drone.set_init_angles(0 * np.pi / 180, 0 * np.pi / 180, 0 * np.pi / 180)
-
-    controller = Controller()
-    #metrics = DroneMetrics()
-
-    dt = 0.01  # second
-    t = int(50 / dt)
-
-    X_des = 300
-    Y_des = 50
-    Z_des = 300
-    Yaw_des = 0 * np.pi / 180
-
-    def trajectory(t):
-        if t > 30:
-            return (t, 200, 500)
-        return (t, 200, 0.5*t**2)
-
-
-    for i in range(t):
-        metrics.times.append(i * dt)
-        measurements = MeasuredParams()
 
         measurements.Rotation_speeds = drone.rotation_speeds
         measurements.Linear_speeds = drone.linear_speeds
@@ -764,9 +778,134 @@ def main():
         metrics.linear_speeds.append(list(measurements.Linear_speeds))
         metrics.coords.append(list(measurements.Coords))
 
+        Wcur_x, Wcur_y, Wcur_z = drone.rotation_speeds
+        VN_cur, VH_cur, VE_cur = drone.linear_speeds
+        Yaw_cur, Pitch_cur, Roll_cur = drone.angles
+        X_cur, Y_cur, Z_cur = drone.linear_coords
+
+        error1 = random.gauss(0, GYRO_ERROR/Rad_TO_DEGREES)
+        error2 = random.gauss(0, GYRO_ERROR/Rad_TO_DEGREES)
+        error3 = random.gauss(0, GYRO_ERROR/Rad_TO_DEGREES)
+        Wcur_x += error1
+        Wcur_y += error2
+        Wcur_z += error3
+
+        error4 = random.gauss(0, LINEAR_SPEED_ERROR)
+        error5 = random.gauss(0, LINEAR_SPEED_ERROR)
+        error6 = random.gauss(0, LINEAR_SPEED_ERROR)
+        VN_cur += error4
+        VH_cur += error5
+        VE_cur += error6
+
+        Yaw.append(Yaw_cur * 180 / np.pi)
+        Pitch.append(Pitch_cur * 180 / np.pi)
+        Roll.append(Roll_cur * 180 / np.pi)
+
+        Wx.append(Wcur_x * 180 / np.pi)
+        Wy.append(Wcur_y * 180 / np.pi)
+        Wz.append(Wcur_z * 180 / np.pi)
+
+        X_cmd, thrust_cmd, Z_cmd = control4.handle([X_des, Y_des, Z_des], [X_cur, Y_cur, Z_cur], dt)
+
+        VN_cmd, VH_cmd, VE_cmd = control3.handle([X_cmd, thrust_cmd, Z_cmd], [VN_cur, VH_cur, VE_cur], dt)
+
+        VN_cmd, _, VE_cmd = rotate_yaw_matrix(-measurements.Angles[0]).dot(np.asfarray([VN_cmd, VH_cmd, VE_cmd]))
+
+        # Команды тангажа и крена ограничиваются +-30 градусами
+        #VN_cmd = saturate(VN_cmd, 30 * np.pi/180)
+        #VE_cmd = saturate(VE_cmd, 30 * np.pi / 180)
+        #VH_cmd = 0
+
+
+        speeds_des = control2.handle([Yaw_des, VN_cmd, VE_cmd],
+                                     [Yaw_cur, Pitch_cur, Roll_cur], dt)
+
+
+
+        engines_speeds = mix_commands_cross(VH_cmd, control1.handle(speeds_des,
+                                                            [Wcur_x, Wcur_y, Wcur_z], dt))
+
+        for i, speed in enumerate(engines_speeds):
+            engines_speeds[i] = saturate_min_max(speed, min_engine_speed, max_engine_speed)
+
+        metrics.engines_speeds.append(list(engines_speeds / RPM_TO_RadPS))
+
+        drone.integrate(engines_speeds, dt)
+
+    show_drone_graphics(metrics)
+
+
+def main():
+    drone = DroneMini(**drone_params)
+    drone.linear_speeds = np.asfarray([0, 0, 0])
+    drone.linear_coords = np.asfarray([0, 0, 0])
+    drone.set_init_angles(0 / Rad_TO_DEGREES, 0 / Rad_TO_DEGREES, 0 / Rad_TO_DEGREES)
+
+    controller = Controller()
+
+    controller.angular_speeds_limits = np.asfarray([200, 200, 200]) / Rad_TO_DEGREES
+    controller.angles_limits = np.asfarray([math.inf, 30, 30]) / Rad_TO_DEGREES
+    controller.linear_speeds_limits = [15, 6, 15]
+
+    min_engine_rpms = 1000
+    max_engine_rpms = 7000
+
+    min_engine_speed = min_engine_rpms * RPM_TO_RadPS # радиан в секунду
+    max_engine_speed = max_engine_rpms * RPM_TO_RadPS # радиан в секунду
+
+    #metrics = DroneMetrics()
+
+    dt = 0.01  # second
+    t = int(60 / dt)
+
+    X_des = 200
+    Y_des = 100
+    Z_des = 300
+    Yaw_des = 40 * np.pi / 180
+
+    def trajectory(t):
+        if t > 30:
+            return (t, 200, 500)
+        return (t, 200, 0.5*t**2)
+
+    for i in range(t):
+        metrics.times.append(i * dt)
+        measurements = MeasuredParams()
+
+        measurements.Rotation_speeds = drone.rotation_speeds
+        measurements.Linear_speeds = drone.linear_speeds
+        measurements.Angles = drone.angles
+        measurements.Coords = drone.linear_coords
+
+
+        error1 = random.gauss(0, GYRO_ERROR/Rad_TO_DEGREES)
+        error2 = random.gauss(0, GYRO_ERROR/Rad_TO_DEGREES)
+        error3 = random.gauss(0, GYRO_ERROR/Rad_TO_DEGREES)
+        measurements.Rotation_speeds[0] += error1
+        measurements.Rotation_speeds[1] += error2
+        measurements.Rotation_speeds[2] += error3
+
+        error4 = random.gauss(0, LINEAR_SPEED_ERROR)
+        error5 = random.gauss(0, LINEAR_SPEED_ERROR)
+        error6 = random.gauss(0, LINEAR_SPEED_ERROR)
+        measurements.Linear_speeds[0] += error4
+        measurements.Linear_speeds[1] += error5
+        measurements.Linear_speeds[2] += error6
+
+        metrics.angular_speeds.append([measurements.Rotation_speeds[0] * 180 / np.pi,
+                                       measurements.Rotation_speeds[1] * 180 / np.pi,
+                                       measurements.Rotation_speeds[2] * 180 / np.pi])
+
+        metrics.angles.append([measurements.Angles[0] * 180 / np.pi,
+                               measurements.Angles[1] * 180 / np.pi,
+                               measurements.Angles[2] * 180 / np.pi])
+
+        metrics.linear_speeds.append(list(measurements.Linear_speeds))
+        metrics.coords.append(list(measurements.Coords))
+
         #X_des, Y_des, Z_des = trajectory(times[-1])
 
-        engines_speeds = controller.handle(Yaw_des, [X_des, Y_des, Z_des], measurements, drone.rotation_matrix, dt)
+        engines_speeds = controller.handle(Yaw_des, [X_des, Y_des, Z_des], measurements, dt)
 
         drone.integrate(engines_speeds, dt)
 
@@ -775,6 +914,7 @@ def main():
 
 if __name__ == "__main__":
     #model_rotation_speeds()
-    model_rotation()
+    #model_rotation()
     #model_linear_speeds()
-    #main()
+    #model_coords()
+    main()

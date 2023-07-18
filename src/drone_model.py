@@ -110,6 +110,7 @@ class DroneMini(DroneModel):
         return inverse_tensor.dot(res)
 
 
+
 if __name__ == "__main__":
     from matplotlib import pyplot as plt
 
