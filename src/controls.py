@@ -28,12 +28,19 @@ INTEGRATOR_TYPE = LINEAR
 metrics = DroneMetrics()
 
 GYRO_ERROR = 1 # degrees per second
-LINEAR_SPEED_ERROR = 0.05
+LINEAR_SPEED_ERROR = 0.05 # meters per second
+COORDS_ERROR = 0.0 # meter
+
+
+@dataclass
+class MeasuredParams:
+    Coords = np.asfarray([0, 0, 0])
+    Linear_speeds = np.asfarray([0, 0, 0])
+    Angles = np.asfarray([0, 0, 0])
+    Rotation_speeds = np.asfarray([0, 0, 0])
 
 
 class RotationSpeedsControlLoop:
-    k_p, k_i, k_d = 250, 0.5, 2
-
     def __init__(self, k_p, k_i, k_d):
         self.__pid_wx = PID(k_p, k_i, k_d, IntegratorFactory.create(INTEGRATOR_TYPE))
         self.__pid_wy = PID(k_p + 350, k_i + 10, k_d, IntegratorFactory.create(INTEGRATOR_TYPE))
@@ -60,14 +67,6 @@ class RotationSpeedsControlLoop:
             wy_des = saturate(wy_des, self.limits[1])
             wz_des = saturate(wz_des, self.limits[2])
 
-        # delta_wx = self._filters[0].handle(wx_des-wx_cur)
-        # delta_wy = self._filters[1].handle(wy_des-wy_cur)
-        # delta_wz = self._filters[2].handle(wz_des-wz_cur)
-
-        # wx_cur = self._filters[0].handle(wx_cur)
-        # wy_cur = self._filters[1].handle(wy_cur)
-        # wz_cur = self._filters[2].handle(wz_cur)
-
         delta_wx = wx_des-wx_cur
         delta_wy = wy_des-wy_cur
         delta_wz = wz_des-wz_cur
@@ -84,20 +83,10 @@ class RotationSpeedsControlLoop:
 
 
 class AnglesControlLoop:
-    k_p_angles, k_i_angles, k_d_angles = 2.3, 0.1, 2
-    k_p_yaw, k_i_yaw, k_d_yaw = 3, 0., 0.6
-
     def __init__(self, k_p, k_i, k_d):
-        #self.__pid_yaw = PID(3, 0., 0.6, IntegratorFactory.create(INTEGRATOR_TYPE))
         self.__pid_yaw = PID(k_p+3, k_i+0.5, k_d+1, IntegratorFactory.create(INTEGRATOR_TYPE))
         self.__pid_pitch = PID(k_p, k_i, k_d, IntegratorFactory.create(INTEGRATOR_TYPE))
         self.__pid_roll = PID(k_p, k_i, k_d, IntegratorFactory.create(INTEGRATOR_TYPE))
-        limit = 1
-        self._filters = [
-            Filter(memory_limit=limit),
-            Filter(memory_limit=limit),
-            Filter(memory_limit=limit),
-        ]
         self.limits = None
 
     def set_initial_state(self, init_angles: typing.Sequence):
@@ -118,18 +107,13 @@ class AnglesControlLoop:
         wy_cmd = self.__pid_yaw.calculate(yaw_des - yaw_cur, dt)
         wz_cmd = self.__pid_pitch.calculate(pitch_des - pitch_cur, dt)
 
-        wx_cmd = self._filters[0].handle(wx_cmd)
-        wy_cmd = self._filters[1].handle(wy_cmd)
-        wz_cmd = self._filters[2].handle(wz_cmd)
-
         return np.asfarray([wx_cmd, -wy_cmd, wz_cmd])
 
 
 class LinearSpeedsControlLoop:
     def __init__(self, k_p, k_i, k_d):
-        #15, 0.15, 70
         self.__pid_VN = PID(k_p, k_i, k_d, IntegratorFactory.create(INTEGRATOR_TYPE))
-        self.__pid_VH = PID(50, 50, 0.0, IntegratorFactory.create(INTEGRATOR_TYPE)) # 5, 3.5, 0
+        self.__pid_VH = PID(50, 50, 0.0, IntegratorFactory.create(INTEGRATOR_TYPE))
         self.__pid_VE = PID(k_p, k_i, k_d, IntegratorFactory.create(INTEGRATOR_TYPE))
         self.limits = None
 
@@ -156,10 +140,15 @@ class LinearSpeedsControlLoop:
 
 class CoordsControlLoop:
     def __init__(self, k_p, k_i, k_d):
-        #15, 0.15, 70
         self.__pid_thrust = PID(k_p, k_i, k_d, IntegratorFactory.create(INTEGRATOR_TYPE))
         self.__pid_x = PID(k_p, k_i, k_d, IntegratorFactory.create(INTEGRATOR_TYPE))
         self.__pid_z = PID(k_p, k_i, k_d, IntegratorFactory.create(INTEGRATOR_TYPE))
+        limit = 10
+        self._filters = [
+            Filter(memory_limit=limit),
+            Filter(memory_limit=limit),
+            Filter(memory_limit=limit),
+        ]
 
     def set_initial_state(self, init_state: typing.Sequence):
         self.__pid_thrust.reset(init_state[0])
@@ -174,15 +163,11 @@ class CoordsControlLoop:
         x_cmd = self.__pid_x.calculate(x_des-x_cur, dt)
         z_cmd = self.__pid_z.calculate(z_des-z_cur, dt)
 
+        thrust_cmd = self._filters[0].handle(thrust_cmd)
+        x_cmd = self._filters[1].handle(x_cmd)
+        z_cmd = self._filters[2].handle(z_cmd)
+
         return np.asfarray([x_cmd, thrust_cmd, z_cmd])
-
-
-@dataclass
-class MeasuredParams:
-    Coords = np.asfarray([0, 0, 0])
-    Linear_speeds = np.asfarray([0, 0, 0])
-    Angles = np.asfarray([0, 0, 0])
-    Rotation_speeds = np.asfarray([0, 0, 0])
 
 
 class Controller:
@@ -267,8 +252,6 @@ class Controller:
         # Команды на линейные скорости (VN, VH, VE)
         X_cmd, thrust_cmd, Z_cmd = self.__controller_coords.handle([X_des, Y_des, Z_des], [X_cur, Y_cur, Z_cur], dt)
 
-        #_, thrust_cmd, _ = rotation_matrix.dot(np.asfarray([X_cmd, thrust_cmd, Z_cmd]))
-
         metrics.linear_speeds_cmd.append([X_cmd, thrust_cmd, Z_cmd])
 
         # Команды на углы поворота (крен, тангаж). Pitch_des, Roll_des
@@ -277,7 +260,6 @@ class Controller:
 
         metrics.angles_cmd.append([VN_cmd, yaw_des, VE_cmd])
 
-        #_, VH_cmd_new, _ = rotation_matrix.dot(np.asfarray([VN_cmd, VH_cmd, VE_cmd]))
         VN_cmd, _, VE_cmd = rotate_yaw_matrix(-measurements.Angles[0]).dot(np.asfarray([VN_cmd, VH_cmd, VE_cmd]))
 
         speeds_des = self.__controller_angles.handle([yaw_des, VN_cmd, VE_cmd],
@@ -847,14 +829,6 @@ def main():
     controller.angles_limits = np.asfarray([math.inf, 30, 30]) / Rad_TO_DEGREES
     controller.linear_speeds_limits = [15, 6, 15]
 
-    min_engine_rpms = 1000
-    max_engine_rpms = 7000
-
-    min_engine_speed = min_engine_rpms * RPM_TO_RadPS # радиан в секунду
-    max_engine_speed = max_engine_rpms * RPM_TO_RadPS # радиан в секунду
-
-    #metrics = DroneMetrics()
-
     dt = 0.01  # second
     t = int(60 / dt)
 
@@ -877,7 +851,6 @@ def main():
         measurements.Angles = drone.angles
         measurements.Coords = drone.linear_coords
 
-
         error1 = random.gauss(0, GYRO_ERROR/Rad_TO_DEGREES)
         error2 = random.gauss(0, GYRO_ERROR/Rad_TO_DEGREES)
         error3 = random.gauss(0, GYRO_ERROR/Rad_TO_DEGREES)
@@ -892,6 +865,13 @@ def main():
         measurements.Linear_speeds[1] += error5
         measurements.Linear_speeds[2] += error6
 
+        error7 = random.gauss(0, COORDS_ERROR)
+        error8 = random.gauss(0, COORDS_ERROR)
+        error9 = random.gauss(0, COORDS_ERROR)
+        measurements.Coords[0] += error7
+        measurements.Coords[1] += error8
+        measurements.Coords[2] += error9
+
         metrics.angular_speeds.append([measurements.Rotation_speeds[0] * 180 / np.pi,
                                        measurements.Rotation_speeds[1] * 180 / np.pi,
                                        measurements.Rotation_speeds[2] * 180 / np.pi])
@@ -903,7 +883,7 @@ def main():
         metrics.linear_speeds.append(list(measurements.Linear_speeds))
         metrics.coords.append(list(measurements.Coords))
 
-        #X_des, Y_des, Z_des = trajectory(times[-1])
+        #X_des, Y_des, Z_des = trajectory(metrics.times[i])
 
         engines_speeds = controller.handle(Yaw_des, [X_des, Y_des, Z_des], measurements, dt)
 

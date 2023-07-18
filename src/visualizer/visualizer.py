@@ -151,22 +151,26 @@ class Drone:
         self.screws4.transform = STTransform(translate=[-6*self.scale, 0, 0.6*self.scale])
 
 
+def show_drone():
+    canvas = scene.SceneCanvas(keys='interactive', size=(800, 600), show=True)
+
+    view = canvas.central_widget.add_view()
+    view.bgcolor = '#efefef'
+    view.camera = 'turntable'
+    view.padding = 100
+    scale = 0.1
+
+    color = Color("#3f51b5")
+
+    drone = Drone(view.scene)
+
+    scene.visuals.XYZAxis(parent=view.scene)
+
+    canvas.app.run()
+
+
 if __name__ == '__main__':
     drone_scene = DroneScene(keys='interactive', size=(800, 600), show=True)
+    drone_scene.scale = 0.1
     drone_scene.run()
 
-    # canvas = scene.SceneCanvas(keys='interactive', size=(800, 600), show=True)
-    #
-    # view = canvas.central_widget.add_view()
-    # view.bgcolor = '#efefef'
-    # view.camera = 'turntable'
-    # view.padding = 100
-    # scale = 0.1
-    #
-    # color = Color("#3f51b5")
-    #
-    # drone = Drone(view.scene)
-    #
-    # scene.visuals.XYZAxis(parent=view.scene)
-    #
-    # canvas.app.run()

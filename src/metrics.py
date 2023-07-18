@@ -31,6 +31,7 @@ class DroneMetrics(Metrics):
         self.angles = []
         self.engines_speeds = []
 
+
 def plot_if_not_empty(x, y, plt, **kwargs):
     if y:
         plt.plot(x, y, **kwargs)

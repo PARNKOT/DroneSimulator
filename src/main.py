@@ -21,13 +21,15 @@ drone_params = {
 
 
 GYRO_ERROR = 1 # degrees per second
-LINEAR_SPEED_ERROR = 0.05
+LINEAR_SPEED_ERROR = 0.1 # meters per second
+COORDS_ERROR = 0.0 # meter
 
 
 def trajectory(t):
     if t > 30:
         return (t, 200, 500)
     return (t, 200, 0.5 * t ** 2)
+
 
 def main():
     sender = Sender("localhost", 10100)
@@ -59,6 +61,9 @@ def main():
         measurements.Angles = drone.angles
         measurements.Coords = drone.linear_coords
 
+        state = np.asfarray([measurements.Coords, measurements.Angles])
+        sender.put(pickle.dumps(state))
+
         error1 = random.gauss(0, GYRO_ERROR/Rad_TO_DEGREES)
         error2 = random.gauss(0, GYRO_ERROR/Rad_TO_DEGREES)
         error3 = random.gauss(0, GYRO_ERROR/Rad_TO_DEGREES)
@@ -73,9 +78,12 @@ def main():
         measurements.Linear_speeds[1] += error5
         measurements.Linear_speeds[2] += error6
 
-        state = np.asfarray([measurements.Coords, measurements.Angles])
-
-        sender.put(pickle.dumps(state))
+        error7 = random.gauss(0, COORDS_ERROR)
+        error8 = random.gauss(0, COORDS_ERROR)
+        error9 = random.gauss(0, COORDS_ERROR)
+        measurements.Coords[0] += error7
+        measurements.Coords[1] += error8
+        measurements.Coords[2] += error9
 
         #X_des, Y_des, Z_des = trajectory(i * dt)
 

@@ -22,24 +22,21 @@ class DroneModel:
         self.linear_coords = np.asfarray([0, 0, 0]) # XN (Север), YH (Высота), ZE (Восток)
 
         self.rotation_speeds = np.asfarray([0, 0, 0]) # Wx, Wy, Wz
-        self.angles = np.asfarray([0, 0, 0]) # Yaw, Pitch, Roll
+        self._angles = np.asfarray([0, 0, 0]) # Yaw, Pitch, Roll
 
-        self.rotation_matrix = rotation_matrix(self.angles[0], self.angles[1], self.angles[2]).T
+        self._rotation_matrix = rotation_matrix(self._angles[0], self._angles[1], self._angles[2]).T
 
         self.integrate_func = integrate_func
 
         self.engines_speeds = np.asfarray([0, 0, 0, 0])
 
-    def set_init_angles(self, yaw, pitch, roll):
-        self.angles = np.asfarray([yaw, pitch, roll])
-        self.rotation_matrix = rotation_matrix(yaw, pitch, roll).T
+    @property
+    def angles(self):
+        return self._angles
 
-    def rotation_matrix_rights(self):
-        wx, wy, wz = self.rotation_speeds
-        speeds_matrix = np.asfarray([[0, -wz, wy],
-                                     [wz, 0, -wx],
-                                     [-wy, wx, 0]])
-        return self.rotation_matrix.dot(speeds_matrix)
+    @property
+    def rotation_matrix(self):
+        return self._rotation_matrix
 
     @abstractmethod
     def calculate_rights_linear(self, engines_speed: np.ndarray) -> np.ndarray:
@@ -52,6 +49,17 @@ class DroneModel:
     @abstractmethod
     def calculate_rights_rotation(self, engines_speed: np.ndarray) -> np.ndarray:
         pass
+
+    def set_init_angles(self, yaw, pitch, roll):
+        self._angles = np.asfarray([yaw, pitch, roll])
+        self._rotation_matrix = rotation_matrix(yaw, pitch, roll).T
+
+    def rotation_matrix_rights(self):
+        wx, wy, wz = self.rotation_speeds
+        speeds_matrix = np.asfarray([[0, -wz, wy],
+                                     [wz, 0, -wx],
+                                     [-wy, wx, 0]])
+        return self.rotation_matrix.dot(speeds_matrix)
 
     def integrate_linear(self, engines_speed: np.ndarray, dt):
         self.linear_coords = self.integrate_func(self.linear_coords, self.linear_speeds, dt)
@@ -67,13 +75,10 @@ class DroneModel:
                                                       self.calculate_rights_rotation(engines_speed), dt)
 
     def integrate_rotation_matrix(self, dt):
-        self.rotation_matrix = self.integrate_func(self.rotation_matrix, self.rotation_matrix_rights(), dt)
-        self.angles = get_angles_from_rotation_matrix(self.rotation_matrix)
+        self._rotation_matrix = self.integrate_func(self.rotation_matrix, self.rotation_matrix_rights(), dt)
+        self._angles = get_angles_from_rotation_matrix(self.rotation_matrix)
 
     def integrate(self, engines_speed: np.ndarray, dt):
-        # for i, speed in enumerate(engines_speed):
-        #     engines_speed[i] = saturate_min_max(speed, self.min_limit, self.max_limit)
-
         self.engines_speeds = engines_speed
 
         self.integrate_linear(engines_speed, dt)
@@ -108,7 +113,6 @@ class DroneMini(DroneModel):
                                                             self.tensor.dot(self.rotation_speeds))
 
         return inverse_tensor.dot(res)
-
 
 
 if __name__ == "__main__":

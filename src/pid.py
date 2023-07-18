@@ -1,6 +1,6 @@
 import random
 
-from integrator import Integrator, LinearIntegrator
+from integrator import Integrator
 
 
 class Differentiator:
@@ -28,7 +28,6 @@ class PID:
         self.__k_p = k_p
         self.__k_i = k_i
         self.__k_d = k_d
-        self.__past_value = 0
         self.__integrator = integrator
         self.__differentiator = Differentiator()
 
@@ -41,13 +40,9 @@ class PID:
         self.__integrator.integrate(value, dt)
         res += self.__k_i * self.__integrator.value
 
-        res += self.__k_d * self.__differentiator.differentiate(value, dt)#self.differentiate(value, dt)
-        self.__past_value = value
+        res += self.__k_d * self.__differentiator.differentiate(value, dt)
 
         return res
-
-    def differentiate(self, value, dt):
-        return (value - self.__past_value)/dt
 
 
 class Filter:
